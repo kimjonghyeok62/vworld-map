@@ -67,14 +67,14 @@
   </div>
 
 <script>
-let MAP_WIN = null;
-  
 // ====== 상수 API Key ======
 const VWORLD_KEY = '21E28EA8-73D0-340C-9EA2-B0CDCA0809B5';
 
 // ====== 유틸 ======
 const $ = (sel) => document.querySelector(sel);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+// 팝업 차단 회피용 전역 창 핸들
+let MAP_WIN = null;
 
 function log(msg){
   const el = $('#log');
@@ -89,69 +89,9 @@ function setProgress(done, total){
   $('#progLabel').textContent = total ? `진행률: ${done}/${total} (${pct}%)` : '';
 }
 
-function shortenAddress(addr){
-  if(!addr) return '';
-  const re = /^(경기|경기도|서울|서울특별시|부산|부산광역시|대구|대구광역시|인천|인천광역시|광주|광주광역시|대전|대전광역시|울산|울산광역시|세종|세종특별자치시|제주|제주특별자치도)\s*(도\s*)?(?:용인시|광주시|하남시|성남시|수원시|고양시|부천시|안양시|안산시|남양주시|화성시|평택시)?\s*/;
-  return addr.replace(re, '').trim();
-}
-
-function extractDongCounts(popupTexts){
-  const m = new Map();
-  popupTexts.forEach(t=>{
-    const mt = /(\d{2,4}동)/.exec(t);
-    if(mt){ m.set(mt[1], (m.get(mt[1])||0)+1); }
-  });
-  return Array.from(m.entries()); // [dong, cnt]
-}
-
-function buildTooltipText(popupTexts){
-  if(!popupTexts || !popupTexts.length) return '';
-  const mainOnly = popupTexts[0].includes('<br>') ? popupTexts[0].split('<br>')[0] : popupTexts[0];
-  const firstAddr = shortenAddress(mainOnly);
-  const total = popupTexts.length;
-  const dongs = extractDongCounts(popupTexts);
-  if(!dongs.length) return `${firstAddr} [총 ${total}건]`;
-  const items = dongs.map(([dong,c])=>`- ${dong}: ${c}건`);
-  const lines = [];
-  for(let i=0;i<items.length;i+=2){ lines.push(items.slice(i,i+2).join(', &nbsp; ')); }
-  return `${firstAddr} [총 ${total}건]<br>` + lines.join('<br>');
-}
-
-function cleanAddress(address){
-  if(!address) return '';
-  let s = address;
-  s = s.replace(/\d+동\s*\d+호/g,'');
-  s = s.replace(/\d+동/g,'');
-  s = s.replace(/\d+호/g,'');
-  s = s.replace(/[(),]/g,' ').replace(/\s+/g,' ').trim();
-  return s;
-}
-
-// ✅ 수정: 도로명 판별 — 마지막 토큰만 보지 말고 "어느 토큰이라도" 접미사를 가지면 도로명으로 간주
-function isRoadAddress(address){
-  if(!address) return false;
-  const suffixes = ['로','길','대로','고가','나들목','순환로','로터리'];
-  const tokens = address.split(/\s+/);
-  // 토큰 중 하나라도 도로명 접미사를 가지면 도로명 판단
-  if(tokens.some(t => suffixes.some(sfx => t.endsWith(sfx)))) return true;
-  // 또는 접미사 뒤에 번지가 오는 일반 패턴 (예: 동백8로 27)
-  if(/(로|길|대로|고가|나들목|순환로|로터리)\s*\d/.test(address)) return true;
-  return false;
-}
-
-function hasLotNumber(address){
-  return /\b\d{1,5}\b/.test(address||'');
-}
-
-function onlyDong(address){
-  const tokens = (address||'').trim().split(/\s+/);
-  const last = tokens[tokens.length-1]||'';
-  return (address.endsWith('동') && tokens.length===1) || (last.endsWith('동') && !/[0-9]/.test(last));
-}
-
 // ====== VWorld 지오코딩 ======
 async function geocodeVWorld(address){
-  const type = isRoadAddress(address) ? 'road' : 'parcel';
+  const type = 'both'; // ✅ road/parcel 자동 탐색
   const url = new URL('https://api.vworld.kr/req/address');
   url.search = new URLSearchParams({
     service:'address', request:'getcoord', version:'2.0', crs:'EPSG:4326',
@@ -162,217 +102,98 @@ async function geocodeVWorld(address){
     const data = await res.json();
     if(data?.response?.status === 'OK'){
       const p = data.response.result.point;
-      return [parseFloat(p.y), parseFloat(p.x)]; // [lat, lon]
+      return [parseFloat(p.y), parseFloat(p.x)];
     }
-  }catch(e){ /* ignore */ }
+  }catch(e){ console.error(e); }
   return null;
 }
 
-function haversineMeters(a,b){
-  const R=6371000; // m
-  const toRad = (d)=> d*Math.PI/180;
-  const dLat = toRad(b[0]-a[0]);
-  const dLon = toRad(b[1]-a[1]);
-  const lat1 = toRad(a[0]);
-  const lat2 = toRad(b[0]);
-  const sinDLat = Math.sin(dLat/2), sinDLon=Math.sin(dLon/2);
-  const h = sinDLat*sinDLat + Math.cos(lat1)*Math.cos(lat2)*sinDLon*sinDLon;
-  return 2*R*Math.asin(Math.sqrt(h));
-}
-
 // ====== 결과 지도 별도 창에 렌더링 ======
-function openMapWindow(payload){
-  const win = (window.MAP_WIN && !window.MAP_WIN.closed) ? window.MAP_WIN : window.open('', '_blank');
-  const html = `<!doctype html>
-  <html lang="ko">
-  <head>
-    <meta charset="utf-8" />
+function openMapWindow(win, payload){
+  // 이미 열어둔 창이 있으면 사용, 없으면 최후수단으로 새 창 시도
+  const target = (win && !win.closed) ? win : window.open('about:blank','_blank');
+  if(!target){ alert('팝업이 차단되었습니다. 브라우저 설정에서 팝업 허용 후 다시 시도해주세요.'); return; }
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>지도 결과</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-    <style>
-      html,body{height:100%;margin:0}
-      #map{height:100%}
-      .leaflet-tooltip{font-family:'맑은 고딕',sans-serif}
-    </style>
-  </head>
-  <body>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>html,body{height:100%;margin:0}#map{height:100%}</style>
+  </head><body>
     <div id="map"></div>
     <script>
       const payload = ${JSON.stringify(payload)};
-      function shortenAddress(addr){
-        const re = /^(경기|경기도|서울|서울특별시|부산|부산광역시|대구|대구광역시|인천|인천광역시|광주|광주광역시|대전|대전광역시|울산|울산광역시|세종|세종특별자치시|제주|제주특별자치도)\s*(도\s*)?(?:용인시|광주시|하남시|성남시|수원시|고양시|부천시|안양시|안산시|남양주시|화성시|평택시)?\s*/;
-        return (addr||'').replace(re, '').trim();
-      }
-      function extractDongCounts(popupTexts){
-        const m = new Map();
-        (popupTexts||[]).forEach(t=>{ const mt = /(\n|<br>)?([0-9]{2,4}동)/.exec(t); if(mt){ const key = mt[2]; m.set(key,(m.get(key)||0)+1);} });
-        return Array.from(m.entries());
-      }
-      function buildTooltipText(popupTexts){
-        if(!popupTexts || !popupTexts.length) return '';
-        const mainOnly = popupTexts[0].includes('<br>') ? popupTexts[0].split('<br>')[0] : popupTexts[0];
-        const firstAddr = shortenAddress(mainOnly);
-        const total = popupTexts.length;
-        const dongs = extractDongCounts(popupTexts);
-        if(!dongs.length) return firstAddr + ' [총 ' + total + '건]';
-        const items = dongs.map(([dong,c])=>'- ' + dong + ': ' + c + '건');
-        const lines = [];
-        for(let i=0;i<items.length;i+=2){ lines.push(items.slice(i,i+2).join(', &nbsp; ')); }
-        return firstAddr + ' [총 ' + total + '건]<br>' + lines.join('<br>');
-      }
-      function haversineMeters(a,b){
-        const R=6371000; const toRad=d=>d*Math.PI/180;
-        const dLat=toRad(b[0]-a[0]), dLon=toRad(b[1]-a[1]);
-        const lat1=toRad(a[0]), lat2=toRad(b[0]);
-        const h=Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
-        return 2*R*Math.asin(Math.sqrt(h));
-      }
       const map = L.map('map').setView(payload.center||[37.275,127.033], payload.zoom||13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(map);
-      const layer = L.layerGroup().addTo(map);
-
-      if(payload.school && payload.school.coord){
-        const [slat, slon] = payload.school.coord;
-        const ranges = [500,1000,1500,2000,2500];
-        const counts = new Map(ranges.map(r=>[r,0]));
-        (payload.points||[]).forEach(p=>{
-          const dist = haversineMeters([slat,slon],[p.lat,p.lon]);
-          for(const r of ranges){ if(dist<=r){ counts.set(r, counts.get(r)+p.count); break; } }
-        });
-        ranges.forEach(r=>{
-          L.circle([slat, slon], {radius:r, color:'#808080', weight:1, dashArray:'5'}).addTo(layer);
-          const labelLat = slat + (r/1000)/111;
-          const labelText = r>=1000 ? (r/1000).toFixed(1)+"km ("+counts.get(r)+"건)" : r+"m ("+counts.get(r)+"건)";
-          L.marker([labelLat, slon], {icon:L.divIcon({className:'',html:`<div style=\"font-size:18px;color:black;font-weight:bold;white-space:nowrap;\">${labelText}</div>`})}).addTo(layer);
-        });
-        L.circleMarker([slat,slon], {radius:6,color:'red',fill:true,fillColor:'red',fillOpacity:1}).bindTooltip('학교 기준점',{sticky:true}).addTo(layer);
-      }
-
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
       (payload.points||[]).forEach(p=>{
-        const k=0.1111, maxR=50; let r = p.count<=100 ? Math.sqrt(p.count/k) : 30 + Math.log(p.count-99); if(r>maxR) r=maxR;
-        const popupHtml = '<ul style="margin:0;padding-left:16px">' + p.popupTexts.map(t=>'<'+'li>'+t+'</li>').join('') + '</ul>';
-        const tt = buildTooltipText(p.popupTexts);
-        L.circleMarker([p.lat,p.lon], {radius:r,color:'blue',fill:true,fillColor:'blue',fillOpacity:0.8})
-          .bindPopup(popupHtml,{maxWidth:300})
-          .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tt+'</div>',{sticky:true})
-          .addTo(layer);
-        if(p.count>1){
-          L.marker([p.lat,p.lon], {icon:L.divIcon({className:'',iconSize:[r*2,r*2],iconAnchor:[r,r], html:`<div style=\"display:flex;justify-content:center;align-items:center;width:${r*2}px;height:${r*2}px;font-size:14px;color:white;font-weight:bold;font-family:맑은 고딕,sans-serif;text-align:center;border-radius:50%;background:transparent;\">${p.count}</div>`})})
-            .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tt+'</div>',{sticky:true})
-            .addTo(layer);
-        }
+        L.circleMarker([p.lat,p.lon], {radius:8,color:'blue',fillColor:'blue',fillOpacity:0.6})
+          .bindPopup(p.popupTexts.join('<br>'))
+          .addTo(map);
       });
     <\/script>
-  </body>
-  </html>`;
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
+  </body></html>`;
+  target.document.open();
+  target.document.write(html);
+  target.document.close();
 }
 
 // ====== 파일 로딩 & 처리 ======
-$('#file').addEventListener('change', ()=>{ /* 파일 선택 후에도 버튼은 항상 활성화, 유효성은 클릭 시 검사 */ });
-$('#clearBtn').addEventListener('click', ()=>{ $('#log').textContent=''; setProgress(0,0); $('#progLabel').textContent=''; });
-
 $('#runBtn').addEventListener('click', async()=>{
-  // 1) 사용자 클릭 직후에 새 창을 먼저 연다 (팝업 차단 우회)
+  // 사용자 클릭 직후 새 창을 먼저 열어 팝업 차단을 회피
   MAP_WIN = window.open('about:blank','_blank');
-  if (MAP_WIN) {
+  if(MAP_WIN){
     MAP_WIN.document.write('<!doctype html><title>지도를 준비중...</title><body style="font-family:sans-serif;padding:16px">지도를 준비중입니다...</body>');
   }
-
   const f = $('#file').files[0];
   if(!f){ alert('데이터 파일을 선택해 주세요.'); return; }
-
   $('#log').textContent=''; setProgress(0,0); log('처리를 시작합니다.');
 
   const ext = f.name.split('.').pop().toLowerCase();
   let rows = [];
-
   if(['xlsx','xls'].includes(ext)){
     const buf = await f.arrayBuffer();
-    const wb = XLSX.read(buf, {type:'array'});
+    const wb = XLSX.read(buf,{type:'array'});
     const ws = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true}); // 헤더 기반
+    rows = XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});
   }else if(ext==='csv'){
     const text = await f.text();
-    const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+    const parsed = Papa.parse(text,{header:true,skipEmptyLines:true});
     rows = parsed.data;
-  }else{
-    alert('지원하지 않는 파일 형식입니다.');
-    return;
-  }
+  } else { alert('지원하지 않는 파일 형식입니다.'); return; }
 
-  const schoolAddr = $('#schoolAddr').value.trim(); // ✅ 입력 시에만 사용 (B2 자동 추출 제거)
-
-  // 컬럼명
-  const COL_ADDR = '주소';
-  const COL_GUBUN = '구분';
-  const COL_DONG = '동';
-
-  const total = rows.length; let done = 0, success = 0;
-  const pointMap = new Map(); // key:"lat,lon" -> {lat,lon,count,popupTexts}
-
-  // (선택) 학교 좌표
-  let schoolCoord = null;
-  if(schoolAddr){
-    log(`학교 기준 주소 지오코딩: ${schoolAddr}`);
-    schoolCoord = await geocodeVWorld(schoolAddr);
-    if(!schoolCoord) log('학교 주소 지오코딩 실패: 반경표시는 생략됩니다.');
-  }
+  const COL_ADDR='주소';
+  const COL_GUBUN='구분';
+  const COL_DONG='동';
+  const total = rows.length; let done=0,success=0;
+  const pointMap=new Map();
 
   for(const [i,row] of rows.entries()){
     const raw = String(row[COL_ADDR]||'').trim();
     if(!raw){ log(`[오류] ${i+2}행: 주소 없음`); done++; setProgress(done,total); continue; }
 
-    const main = raw.includes(',') ? raw.split(',')[0].trim() : raw;
-    const suffix = raw.replace(main,'').replace(/^[,\s()]*/,'').trim();
-    const gubun = String(row[COL_GUBUN]||'').trim();
-    const dong = String(row[COL_DONG]||'').trim();
-    const address = cleanAddress(main);
-
-    const road = isRoadAddress(address);
-    const roadNoLot = road && !/\b\d{1,5}\b/.test(address);
-    const onlyD = onlyDong(address);
-    if(roadNoLot || onlyD){
-      log(`[오류] ${address} → 정확한 번지가 없습니다.`);
-      done++; setProgress(done,total); continue;
-    }
-
+    const address = raw;
     const coord = await geocodeVWorld(address);
     await sleep(200);
 
     if(coord){
       success++;
-      const key = coord.join(',');
-      if(!pointMap.has(key)) pointMap.set(key, {lat:coord[0],lon:coord[1],count:0,popupTexts:[]});
-      const p = pointMap.get(key);
-      p.count += 1;
-      const parts = [address];
-      if(gubun==='아파트' && dong) parts.push(`${dong}동`);
-      if(suffix) parts.push(suffix);
-      p.popupTexts.push(parts.join('<br>'));
-    }else{
+      const key=coord.join(',');
+      if(!pointMap.has(key)) pointMap.set(key,{lat:coord[0],lon:coord[1],popupTexts:[],count:0});
+      const p=pointMap.get(key);
+      p.count++;
+      p.popupTexts.push(address);
+    } else {
       log(`[실패] ${address} → 주소를 찾을 수 없습니다.`);
     }
     done++; setProgress(done,total);
   }
 
-  const points = Array.from(pointMap.values());
+  const points=Array.from(pointMap.values());
   if(points.length){
-    // 첫 포인트 기준으로 센터
-    const center = [points[0].lat, points[0].lon];
-    openMapWindow({
-      center, zoom: 14,
-      school: schoolCoord ? {coord: schoolCoord, address: schoolAddr} : null,
-      points
-    });
-    log(`✅ 완료: 총 ${rows.length}건 / 성공 ${success}건 / 실패 ${rows.length - success}건`);
-  }else{
-    log('⛔ 표시할 수 있는 주소가 없습니다.');
-  }
+    const center=[points[0].lat,points[0].lon];
+    openMapWindow(MAP_WIN, {center,zoom:14,points});
+    log(`✅ 완료: 총 ${rows.length}건 / 성공 ${success}건 / 실패 ${rows.length-success}건`);
+  } else { log('⛔ 표시할 수 있는 주소가 없습니다.'); }
 });
 </script>
 </body>
