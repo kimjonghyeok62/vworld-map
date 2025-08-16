@@ -4,13 +4,15 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VWorld 주소 지도 표시 (웹 버전) — 내장 지도</title>
+
   <!-- SheetJS for Excel -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <!-- PapaParse for CSV -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <!-- Leaflet for map rendering -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin></script>
+
   <style>
     :root{--bg:#0b1020;--panel:#11172c;--muted:#93a3c6;--line:#1f2a49;--accent:#5b8cff;--txt:#e6ecff}
     html,body{height:100%}
@@ -20,30 +22,30 @@
     .hint{color:var(--muted);font-size:.95rem;margin-bottom:12px}
     .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
     label{display:block;margin:10px 0 6px}
-    input[type="text"], input[type="file"], select{
+    input[type="text"], input[type="file"]{
       width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0f1530;color:var(--txt)
     }
     button{cursor:pointer;background:var(--accent);color:white;border:none;padding:10px 14px;border-radius:12px;font-weight:700}
-    button[disabled]{opacity:.6;cursor:not-allowed}
     .row{display:flex;gap:8px;align-items:center}
     .row > *{flex:1}
     .progress{height:10px;background:#0f1530;border-radius:999px;overflow:hidden;border:1px solid var(--line);margin-top:8px}
     .bar{height:100%;background:linear-gradient(90deg,#688fff,#86a7ff)}
-    .log{height:360px;overflow:auto;background:#0f1530;border:1px solid var(--line);border-radius:10px;padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .log{height:200px;overflow:auto;background:#0f1530;border:1px solid var(--line);border-radius:10px;padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:pre-wrap}
     .note{color:#ffb4b4;white-space:pre-line}
     .pill{display:inline-block;padding:.2rem .6rem;border-radius:999px;background:#143268;color:#d7e4ff;font-size:.8rem;margin-left:.5rem}
     .footer{color:var(--muted);font-size:.85rem;margin-top:10px}
+
+    /* 내장 지도: 화면 하단 꽉 채우기 */
+    .map-wrap{width:100vw}
     #map{width:100vw;min-height:360px;background:#0f1530;border-top:1px solid var(--line)}
-  .map-wrap{width:100vw}
-</style>
+  </style>
 </head>
 <body>
   <div class="wrap">
     <h1>📍 VWorld 주소 지도 표시 <span class="pill">웹 버전 · 내장 지도</span></h1>
-    <div class="hint">엑셀(.xlsx/.xls) 또는 CSV 파일의 <b>주소</b>, <b>구분</b>(선택), <b>동</b>(선택) 컬럼을 읽어 지도에 표시합니다.<br>학교 기준 주소 입력은 <b>선택사항</b>이며, 미입력 시 반경표시는 생략됩니다.</div>
+    <div class="hint">엑셀(.xlsx/.xls) 또는 CSV 파일의 <b>주소</b>, <b>구분</b>(선택), <b>동</b>(선택) 컬럼을 읽어 지도에 표시합니다.<br>학교 기준 주소 입력은 선택사항이며, 미입력 시 반경표시는 생략됩니다.</div>
 
     <div class="panel">
-      <!-- 1) 상수 API Key 사용 -->
       <div class="hint">VWorld API Key: <code>상수</code> 사용 (입력 불필요)</div>
 
       <label>데이터 파일 선택 (xlsx / xls / csv)</label>
@@ -61,9 +63,9 @@
       <div id="progLabel" class="hint" style="margin-top:6px"></div>
 
       <div class="note" style="margin-top:12px">⚠️ 주의사항
-- '로', '길' 등 도로명 주소에 번지(숫자)가 없으면 오류 처리
+- '로', '길' 등 도로명 주소에 번지(숫자)가 없으면 실패할 수 있습니다.
 - 아파트 단지명만은 불가 (정확한 주소 필요)
-- 동/호수는 무시되고 아파트 ‘동’ 단위로 합산 표시
+- 동/호수는 자동 무시(지오코딩 전처리)
 - 요청은 0.2초 간격으로 순차 호출 (VWorld API 과도 호출 방지)</div>
 
       <div id="log" class="log" style="margin-top:12px"></div>
@@ -76,49 +78,58 @@
   </div>
 
 <script>
-// ====== 상수 API Key ======
 const VWORLD_KEY = '21E28EA8-73D0-340C-9EA2-B0CDCA0809B5';
-
-// ====== 유틸 ======
 const $ = (sel) => document.querySelector(sel);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-// Leaflet map instance & layer
-let MAP = null;
-let MAP_LAYER = null;
 
 function log(msg){
   const el = $('#log');
   const time = new Date().toLocaleTimeString();
-  el.innerHTML += `[${time}] ${msg}` + "\n";
+  el.textContent += `[${time}] ${msg}\n`;
   el.scrollTop = el.scrollHeight;
 }
-
 function setProgress(done, total){
   const pct = total ? Math.round(done/total*100) : 0;
   $('#bar').style.width = pct + '%';
   $('#progLabel').textContent = total ? `진행률: ${done}/${total} (${pct}%)` : '';
 }
 
-// ====== VWorld 지오코딩 ======
+/* 주소 전처리: 쉼표 뒤 꼬리, 동/호, 특수공백 제거 */
+function cleanAddress(address){
+  if(!address) return '';
+  let s = String(address);
+  if (s.includes(',')) s = s.split(',')[0];
+  s = s.replace(/\u00A0|\u200B/g,''); // NBSP, zero-width
+  s = s.replace(/\d+동\s*\d+호/g,'');
+  s = s.replace(/\d+동/g,'');
+  s = s.replace(/\d+호/g,'');
+  s = s.replace(/[(),]/g,' ').replace(/\s+/g,' ').trim();
+  return s;
+}
+
+/* VWorld 지오코딩: road → 실패 시 parcel 재시도 */
 async function geocodeVWorld(address){
-  const type = 'both'; // ✅ road/parcel 자동 탐색
-  const url = new URL('https://api.vworld.kr/req/address');
-  url.search = new URLSearchParams({
-    service:'address', request:'getcoord', version:'2.0', crs:'EPSG:4326',
-    address, refine:'true', simple:'false', format:'json', type, key: VWORLD_KEY
-  }).toString();
-  try{
-    const res = await fetch(url.toString());
-    const data = await res.json();
-    if(data?.response?.status === 'OK'){
-      const p = data.response.result.point;
-      return [parseFloat(p.y), parseFloat(p.x)];
-    }
-  }catch(e){ console.error(e); }
+  const types = ['road','parcel'];
+  for(const type of types){
+    const url = new URL('https://api.vworld.kr/req/address');
+    url.search = new URLSearchParams({
+      service:'address', request:'getcoord', version:'2.0', crs:'EPSG:4326',
+      address, refine:'true', simple:'false', format:'json', type, key: VWORLD_KEY
+    }).toString();
+    try{
+      const res = await fetch(url.toString());
+      const data = await res.json();
+      if(data?.response?.status === 'OK' && data?.response?.result?.point){
+        const p = data.response.result.point;
+        return [parseFloat(p.y), parseFloat(p.x)]; // [lat, lon]
+      }
+    }catch(e){ console.error('VWorld 오류', e); }
+  }
   return null;
 }
 
-// ====== 결과 지도 별도 창에 렌더링 ======
+/* 지도 (내장) */
+let MAP = null, MAP_LAYER = null;
 function resizeMapHeight(){
   const el = document.getElementById('map');
   if(!el) return;
@@ -126,7 +137,6 @@ function resizeMapHeight(){
   const avail = window.innerHeight - top - 8;
   el.style.height = Math.max(avail, 360) + 'px';
 }
-
 function ensureMap(center=[37.5665,126.9780], zoom=12){
   if(!MAP){
     resizeMapHeight();
@@ -137,24 +147,33 @@ function ensureMap(center=[37.5665,126.9780], zoom=12){
     setTimeout(()=>MAP.invalidateSize(), 200);
   }
 }
-
+function haversineMeters(a,b){
+  const R=6371000, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(b[0]-a[0]), dLon=toRad(b[1]-a[1]);
+  const lat1=toRad(a[0]), lat2=toRad(b[0]);
+  const h=Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
 function renderMapOnPage(payload){
   const center = payload.center || [37.5665,126.9780];
   const zoom = payload.zoom || 13;
   ensureMap(center, zoom);
   MAP_LAYER.clearLayers();
 
+  // (선택) 학교 기준 반경
   if(payload.school && payload.school.coord){
     const [slat, slon] = payload.school.coord;
     const ranges = [500,1000,1500,2000,2500];
     const counts = new Map(ranges.map(r=>[r,0]));
-    const hav = (a,b)=>{const R=6371000, toRad=d=>d*Math.PI/180; const dLat=toRad(b[0]-a[0]), dLon=toRad(b[1]-a[1]); const lat1=toRad(a[0]), lat2=toRad(b[0]); const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.sqrt(h));};
-    (payload.points||[]).forEach(p=>{ const d=hav([slat,slon],[p.lat,p.lon]); for(const r of ranges){ if(d<=r){ counts.set(r, counts.get(r)+p.count); break; } } });
+    (payload.points||[]).forEach(p=>{
+      const d=haversineMeters([slat,slon],[p.lat,p.lon]);
+      for(const r of ranges){ if(d<=r){ counts.set(r, counts.get(r)+p.count); break; } }
+    });
     ranges.forEach(r=>{
       L.circle([slat, slon], {radius:r, color:'#808080', weight:1, dashArray:'5'}).addTo(MAP_LAYER);
       const labelLat = slat + (r/1000)/111;
       const labelText = r>=1000 ? (r/1000).toFixed(1)+`km (${counts.get(r)}건)` : r+`m (${counts.get(r)}건)`;
-      L.marker([labelLat, slon], {icon:L.divIcon({className:'',html:`<div style=\"font-size:18px;color:black;font-weight:bold;white-space:nowrap;\">${labelText}</div>`})}).addTo(MAP_LAYER);
+      L.marker([labelLat, slon], {icon:L.divIcon({className:'',html:`<div style="font-size:18px;color:black;font-weight:bold;white-space:nowrap;">${labelText}</div>`})}).addTo(MAP_LAYER);
     });
     L.circleMarker([slat,slon], {radius:6,color:'red',fill:true,fillColor:'red',fillOpacity:1}).bindTooltip('학교 기준점',{sticky:true}).addTo(MAP_LAYER);
   }
@@ -162,16 +181,16 @@ function renderMapOnPage(payload){
   const latlngs=[];
   (payload.points||[]).forEach(p=>{
     latlngs.push([p.lat,p.lon]);
-    const k=0.1111, maxR=50; let r = p.count<=100 ? Math.sqrt(p.count/k) : 30 + Math.log(p.count-99); if(r>maxR) r=maxR;
+    const k=0.1111, maxR=50;
+    let r = p.count<=100 ? Math.sqrt(p.count/k) : 30 + Math.log(p.count-99);
+    if(r>maxR) r=maxR;
     const popupHtml = '<ul style="margin:0;padding-left:16px">' + (p.popupTexts||[]).map(t=>'<'+'li>'+t+'</li>').join('') + '</ul>';
-    const tt = (typeof buildTooltipText==='function') ? buildTooltipText(p.popupTexts||[]) : '';
     L.circleMarker([p.lat,p.lon], {radius:r,color:'blue',fill:true,fillColor:'blue',fillOpacity:0.8})
       .bindPopup(popupHtml,{maxWidth:300})
-      .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tt+'</div>',{sticky:true})
       .addTo(MAP_LAYER);
     if(p.count>1){
-      L.marker([p.lat,p.lon], {icon:L.divIcon({className:'',iconSize:[r*2,r*2],iconAnchor:[r,r], html:`<div style=\"display:flex;justify-content:center;align-items:center;width:${r*2}px;height:${r*2}px;font-size:14px;color:white;font-weight:bold;font-family:맑은 고딕,sans-serif;text-align:center;border-radius:50%;background:transparent;\">${p.count}</div>`})})
-        .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tt+'</div>',{sticky:true})
+      L.marker([p.lat,p.lon], {icon:L.divIcon({className:'',iconSize:[r*2,r*2],iconAnchor:[r,r],
+        html:`<div style="display:flex;justify-content:center;align-items:center;width:${r*2}px;height:${r*2}px;font-size:14px;color:white;font-weight:bold;font-family:맑은 고딕,sans-serif;text-align:center;border-radius:50%;background:transparent;">${p.count}</div>`})})
         .addTo(MAP_LAYER);
     }
   });
@@ -183,13 +202,18 @@ function renderMapOnPage(payload){
   setTimeout(()=>MAP.invalidateSize(), 100);
 }
 
-// ====== 파일 로딩 & 처리 ======
+/* 파일 로딩 & 처리 */
+$('#clearBtn').addEventListener('click', ()=>{ $('#log').textContent=''; setProgress(0,0); $('#progLabel').textContent=''; });
+
 $('#runBtn').addEventListener('click', async()=>{
   document.getElementById('map').scrollIntoView({behavior:'smooth', block:'start'});
+  ensureMap(); // 포인트가 0이어도 빈 지도 먼저 보이게
+
   const f = $('#file').files[0];
   if(!f){ alert('데이터 파일을 선택해 주세요.'); return; }
   $('#log').textContent=''; setProgress(0,0); log('처리를 시작합니다.');
 
+  // 파일 읽기
   const ext = f.name.split('.').pop().toLowerCase();
   let rows = [];
   if(['xlsx','xls'].includes(ext)){
@@ -203,9 +227,17 @@ $('#runBtn').addEventListener('click', async()=>{
     rows = parsed.data;
   } else { alert('지원하지 않는 파일 형식입니다.'); return; }
 
-  const COL_ADDR='주소';
-  const COL_GUBUN='구분';
-  const COL_DONG='동';
+  // (선택) 학교 기준 주소
+  const schoolAddrRaw = $('#schoolAddr').value.trim();
+  let schoolCoord = null;
+  if(schoolAddrRaw){
+    const sAddr = cleanAddress(schoolAddrRaw);
+    log(`학교 기준 주소 지오코딩: ${sAddr}`);
+    schoolCoord = await geocodeVWorld(sAddr);
+    if(!schoolCoord) log('학교 주소 지오코딩 실패: 반경표시는 생략됩니다.');
+  }
+
+  const COL_ADDR='주소', COL_GUBUN='구분', COL_DONG='동';
   const total = rows.length; let done=0,success=0;
   const pointMap=new Map();
 
@@ -213,7 +245,7 @@ $('#runBtn').addEventListener('click', async()=>{
     const raw = String(row[COL_ADDR]||'').trim();
     if(!raw){ log(`[오류] ${i+2}행: 주소 없음`); done++; setProgress(done,total); continue; }
 
-    const address = raw;
+    const address = cleanAddress(raw);
     const coord = await geocodeVWorld(address);
     await sleep(200);
 
@@ -223,7 +255,11 @@ $('#runBtn').addEventListener('click', async()=>{
       if(!pointMap.has(key)) pointMap.set(key,{lat:coord[0],lon:coord[1],popupTexts:[],count:0});
       const p=pointMap.get(key);
       p.count++;
-      p.popupTexts.push(address);
+      const dong = String(row[COL_DONG]||'').trim();
+      const gubun = String(row[COL_GUBUN]||'').trim();
+      const parts = [address];
+      if(gubun==='아파트' && dong) parts.push(`${dong}동`);
+      p.popupTexts.push(parts.join('<br>'));
     } else {
       log(`[실패] ${address} → 주소를 찾을 수 없습니다.`);
     }
@@ -233,9 +269,13 @@ $('#runBtn').addEventListener('click', async()=>{
   const points=Array.from(pointMap.values());
   if(points.length){
     const center=[points[0].lat,points[0].lon];
-    renderMapOnPage({center,zoom:14,points});
+    renderMapOnPage({center,zoom:14,points, school: schoolCoord ? {coord: schoolCoord, address: schoolAddrRaw} : null});
     log(`✅ 완료: 총 ${rows.length}건 / 성공 ${success}건 / 실패 ${rows.length-success}건`);
-  } else { log('⛔ 표시할 수 있는 주소가 없습니다.'); }
+  } else {
+    const fallback = schoolCoord ? {center: schoolCoord, zoom: 14, points: [], school: {coord: schoolCoord, address: schoolAddrRaw}} : {center:[37.5665,126.9780], zoom:12, points: []};
+    renderMapOnPage(fallback);
+    log('⛔ 표시할 수 있는 주소가 없습니다.');
+  }
 });
 </script>
 </body>
