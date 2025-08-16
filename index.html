@@ -67,6 +67,8 @@
   </div>
 
 <script>
+let MAP_WIN = null;
+  
 // ====== 상수 API Key ======
 const VWORLD_KEY = '21E28EA8-73D0-340C-9EA2-B0CDCA0809B5';
 
@@ -180,7 +182,7 @@ function haversineMeters(a,b){
 
 // ====== 결과 지도 별도 창에 렌더링 ======
 function openMapWindow(payload){
-  const win = window.open('', '_blank');
+  const win = (window.MAP_WIN && !window.MAP_WIN.closed) ? window.MAP_WIN : window.open('', '_blank');
   const html = `<!doctype html>
   <html lang="ko">
   <head>
@@ -275,6 +277,12 @@ $('#file').addEventListener('change', ()=>{ /* 파일 선택 후에도 버튼은
 $('#clearBtn').addEventListener('click', ()=>{ $('#log').textContent=''; setProgress(0,0); $('#progLabel').textContent=''; });
 
 $('#runBtn').addEventListener('click', async()=>{
+  // 1) 사용자 클릭 직후에 새 창을 먼저 연다 (팝업 차단 우회)
+  MAP_WIN = window.open('about:blank','_blank');
+  if (MAP_WIN) {
+    MAP_WIN.document.write('<!doctype html><title>지도를 준비중...</title><body style="font-family:sans-serif;padding:16px">지도를 준비중입니다...</body>');
+  }
+
   const f = $('#file').files[0];
   if(!f){ alert('데이터 파일을 선택해 주세요.'); return; }
 
