@@ -3,11 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VWorld 주소 지도 표시 (웹 버전) — 별도 창 표시</title>
+  <title>VWorld 주소 지도 표시 (웹 버전) — 내장 지도</title>
   <!-- SheetJS for Excel -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <!-- PapaParse for CSV -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <!-- Leaflet for map rendering -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <style>
     :root{--bg:#0b1020;--panel:#11172c;--muted:#93a3c6;--line:#1f2a49;--accent:#5b8cff;--txt:#e6ecff}
     html,body{height:100%}
@@ -30,11 +33,13 @@
     .note{color:#ffb4b4;white-space:pre-line}
     .pill{display:inline-block;padding:.2rem .6rem;border-radius:999px;background:#143268;color:#d7e4ff;font-size:.8rem;margin-left:.5rem}
     .footer{color:var(--muted);font-size:.85rem;margin-top:10px}
-  </style>
+    #map{width:100vw;min-height:360px;background:#0f1530;border-top:1px solid var(--line)}
+  .map-wrap{width:100vw}
+</style>
 </head>
 <body>
   <div class="wrap">
-    <h1>📍 VWorld 주소 지도 표시 <span class="pill">웹 버전 · 별도 창</span></h1>
+    <h1>📍 VWorld 주소 지도 표시 <span class="pill">웹 버전 · 내장 지도</span></h1>
     <div class="hint">엑셀(.xlsx/.xls) 또는 CSV 파일의 <b>주소</b>, <b>구분</b>(선택), <b>동</b>(선택) 컬럼을 읽어 지도에 표시합니다.<br>학교 기준 주소 입력은 <b>선택사항</b>이며, 미입력 시 반경표시는 생략됩니다.</div>
 
     <div class="panel">
@@ -48,7 +53,7 @@
       <input id="schoolAddr" type="text" placeholder="입력 시에만 반경 원/라벨 표시" />
 
       <div class="row" style="margin-top:10px">
-        <button id="runBtn">지도에 표시 (새 창)</button>
+        <button id="runBtn">지도에 표시</button>
         <button id="clearBtn">로그 지우기</button>
       </div>
 
@@ -62,8 +67,12 @@
 - 요청은 0.2초 간격으로 순차 호출 (VWorld API 과도 호출 방지)</div>
 
       <div id="log" class="log" style="margin-top:12px"></div>
-      <div class="footer">제작: 브라우저 전용 단일 HTML · Leaflet + VWorld API · 결과는 새 창에 지도를 렌더링</div>
+      <div class="footer">제작: 브라우저 전용 단일 HTML · Leaflet + VWorld API · 결과는 아래 내장 지도에 렌더링</div>
     </div>
+  </div>
+
+  <div class="map-wrap">
+    <div id="map"></div>
   </div>
 
 <script>
@@ -73,8 +82,9 @@ const VWORLD_KEY = '21E28EA8-73D0-340C-9EA2-B0CDCA0809B5';
 // ====== 유틸 ======
 const $ = (sel) => document.querySelector(sel);
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-// 팝업 차단 회피용 전역 창 핸들
-let MAP_WIN = null;
+// Leaflet map instance & layer
+let MAP = null;
+let MAP_LAYER = null;
 
 function log(msg){
   const el = $('#log');
@@ -109,41 +119,73 @@ async function geocodeVWorld(address){
 }
 
 // ====== 결과 지도 별도 창에 렌더링 ======
-function openMapWindow(win, payload){
-  // 이미 열어둔 창이 있으면 사용, 없으면 최후수단으로 새 창 시도
-  const target = (win && !win.closed) ? win : window.open('about:blank','_blank');
-  if(!target){ alert('팝업이 차단되었습니다. 브라우저 설정에서 팝업 허용 후 다시 시도해주세요.'); return; }
-  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>지도 결과</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <style>html,body{height:100%;margin:0}#map{height:100%}</style>
-  </head><body>
-    <div id="map"></div>
-    <script>
-      const payload = ${JSON.stringify(payload)};
-      const map = L.map('map').setView(payload.center||[37.275,127.033], payload.zoom||13);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19}).addTo(map);
-      (payload.points||[]).forEach(p=>{
-        L.circleMarker([p.lat,p.lon], {radius:8,color:'blue',fillColor:'blue',fillOpacity:0.6})
-          .bindPopup(p.popupTexts.join('<br>'))
-          .addTo(map);
-      });
-    <\/script>
-  </body></html>`;
-  target.document.open();
-  target.document.write(html);
-  target.document.close();
+function resizeMapHeight(){
+  const el = document.getElementById('map');
+  if(!el) return;
+  const top = el.getBoundingClientRect().top;
+  const avail = window.innerHeight - top - 8;
+  el.style.height = Math.max(avail, 360) + 'px';
+}
+
+function ensureMap(center=[37.5665,126.9780], zoom=12){
+  if(!MAP){
+    resizeMapHeight();
+    MAP = L.map('map').setView(center, zoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(MAP);
+    MAP_LAYER = L.layerGroup().addTo(MAP);
+    window.addEventListener('resize', ()=>{ resizeMapHeight(); setTimeout(()=>MAP.invalidateSize(), 50); });
+    setTimeout(()=>MAP.invalidateSize(), 200);
+  }
+}
+
+function renderMapOnPage(payload){
+  const center = payload.center || [37.5665,126.9780];
+  const zoom = payload.zoom || 13;
+  ensureMap(center, zoom);
+  MAP_LAYER.clearLayers();
+
+  if(payload.school && payload.school.coord){
+    const [slat, slon] = payload.school.coord;
+    const ranges = [500,1000,1500,2000,2500];
+    const counts = new Map(ranges.map(r=>[r,0]));
+    const hav = (a,b)=>{const R=6371000, toRad=d=>d*Math.PI/180; const dLat=toRad(b[0]-a[0]), dLon=toRad(b[1]-a[1]); const lat1=toRad(a[0]), lat2=toRad(b[0]); const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.sqrt(h));};
+    (payload.points||[]).forEach(p=>{ const d=hav([slat,slon],[p.lat,p.lon]); for(const r of ranges){ if(d<=r){ counts.set(r, counts.get(r)+p.count); break; } } });
+    ranges.forEach(r=>{
+      L.circle([slat, slon], {radius:r, color:'#808080', weight:1, dashArray:'5'}).addTo(MAP_LAYER);
+      const labelLat = slat + (r/1000)/111;
+      const labelText = r>=1000 ? (r/1000).toFixed(1)+`km (${counts.get(r)}건)` : r+`m (${counts.get(r)}건)`;
+      L.marker([labelLat, slon], {icon:L.divIcon({className:'',html:`<div style=\"font-size:18px;color:black;font-weight:bold;white-space:nowrap;\">${labelText}</div>`})}).addTo(MAP_LAYER);
+    });
+    L.circleMarker([slat,slon], {radius:6,color:'red',fill:true,fillColor:'red',fillOpacity:1}).bindTooltip('학교 기준점',{sticky:true}).addTo(MAP_LAYER);
+  }
+
+  const latlngs=[];
+  (payload.points||[]).forEach(p=>{
+    latlngs.push([p.lat,p.lon]);
+    const k=0.1111, maxR=50; let r = p.count<=100 ? Math.sqrt(p.count/k) : 30 + Math.log(p.count-99); if(r>maxR) r=maxR;
+    const popupHtml = '<ul style="margin:0;padding-left:16px">' + (p.popupTexts||[]).map(t=>'<'+'li>'+t+'</li>').join('') + '</ul>';
+    const tt = (typeof buildTooltipText==='function') ? buildTooltipText(p.popupTexts||[]) : '';
+    L.circleMarker([p.lat,p.lon], {radius:r,color:'blue',fill:true,fillColor:'blue',fillOpacity:0.8})
+      .bindPopup(popupHtml,{maxWidth:300})
+      .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tt+'</div>',{sticky:true})
+      .addTo(MAP_LAYER);
+    if(p.count>1){
+      L.marker([p.lat,p.lon], {icon:L.divIcon({className:'',iconSize:[r*2,r*2],iconAnchor:[r,r], html:`<div style=\"display:flex;justify-content:center;align-items:center;width:${r*2}px;height:${r*2}px;font-size:14px;color:white;font-weight:bold;font-family:맑은 고딕,sans-serif;text-align:center;border-radius:50%;background:transparent;\">${p.count}</div>`})})
+        .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tt+'</div>',{sticky:true})
+        .addTo(MAP_LAYER);
+    }
+  });
+
+  if(latlngs.length===1){ MAP.setView(latlngs[0], zoom); }
+  else if(latlngs.length>1){ MAP.fitBounds(latlngs, {padding:[30,30]}); }
+
+  resizeMapHeight();
+  setTimeout(()=>MAP.invalidateSize(), 100);
 }
 
 // ====== 파일 로딩 & 처리 ======
 $('#runBtn').addEventListener('click', async()=>{
-  // 사용자 클릭 직후 새 창을 먼저 열어 팝업 차단을 회피
-  MAP_WIN = window.open('about:blank','_blank');
-  if(MAP_WIN){
-    MAP_WIN.document.write('<!doctype html><title>지도를 준비중...</title><body style="font-family:sans-serif;padding:16px">지도를 준비중입니다...</body>');
-  }
+  document.getElementById('map').scrollIntoView({behavior:'smooth', block:'start'});
   const f = $('#file').files[0];
   if(!f){ alert('데이터 파일을 선택해 주세요.'); return; }
   $('#log').textContent=''; setProgress(0,0); log('처리를 시작합니다.');
@@ -191,7 +233,7 @@ $('#runBtn').addEventListener('click', async()=>{
   const points=Array.from(pointMap.values());
   if(points.length){
     const center=[points[0].lat,points[0].lon];
-    openMapWindow(MAP_WIN, {center,zoom:14,points});
+    renderMapOnPage({center,zoom:14,points});
     log(`✅ 완료: 총 ${rows.length}건 / 성공 ${success}건 / 실패 ${rows.length-success}건`);
   } else { log('⛔ 표시할 수 있는 주소가 없습니다.'); }
 });
