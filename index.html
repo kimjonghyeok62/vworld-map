@@ -48,7 +48,7 @@
       <input id="schoolAddr" type="text" placeholder="입력 시에만 반경 원/라벨 표시" />
 
       <div class="row" style="margin-top:10px">
-        <button id="runBtn" disabled>지도에 표시 (새 창)</button>
+        <button id="runBtn">지도에 표시 (새 창)</button>
         <button id="clearBtn">로그 지우기</button>
       </div>
 
@@ -271,9 +271,7 @@ function openMapWindow(payload){
 }
 
 // ====== 파일 로딩 & 처리 ======
-$('#file').addEventListener('change', ()=>{
-  $('#runBtn').disabled = !$('#file').files.length;
-});
+$('#file').addEventListener('change', ()=>{ /* 파일 선택 후에도 버튼은 항상 활성화, 유효성은 클릭 시 검사 */ });
 $('#clearBtn').addEventListener('click', ()=>{ $('#log').textContent=''; setProgress(0,0); $('#progLabel').textContent=''; });
 
 $('#runBtn').addEventListener('click', async()=>{
