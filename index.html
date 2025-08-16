@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VWorld 주소 지도 표시 (웹 버전)</title>
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <!-- SheetJS for Excel -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- PapaParse for CSV -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    :root{--bg:#0b1020;--panel:#11172c;--muted:#93a3c6;--line:#1f2a49;--accent:#5b8cff;--txt:#e6ecff}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--txt);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans KR",sans-serif}
+    .wrap{max-width:1200px;margin:0 auto;padding:24px}
+    h1{font-size:1.35rem;margin:0 0 8px}
+    .hint{color:var(--muted);font-size:.95rem;margin-bottom:12px}
+    .grid{display:grid;grid-template-columns:380px 1fr;gap:16px}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
+    label{display:block;margin:10px 0 6px}
+    input[type="text"], input[type="file"], select{
+      width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0f1530;color:var(--txt)
+    }
+    button{cursor:pointer;background:var(--accent);color:white;border:none;padding:10px 14px;border-radius:12px;font-weight:700}
+    button[disabled]{opacity:.6;cursor:not-allowed}
+    .row{display:flex;gap:8px;align-items:center}
+    .row > *{flex:1}
+    .progress{height:10px;background:#0f1530;border-radius:999px;overflow:hidden;border:1px solid var(--line);margin-top:8px}
+    .bar{height:100%;background:linear-gradient(90deg,#688fff,#86a7ff)}
+    .log{height:360px;overflow:auto;background:#0f1530;border:1px solid var(--line);border-radius:10px;padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    #map{height:720px;border-radius:16px;border:1px solid var(--line)}
+    .note{color:#ffb4b4;white-space:pre-line}
+    .pill{display:inline-block;padding:.2rem .6rem;border-radius:999px;background:#143268;color:#d7e4ff;font-size:.8rem;margin-left:.5rem}
+    .footer{color:var(--muted);font-size:.85rem;margin-top:10px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>📍 VWorld 주소 지도 표시 <span class="pill">웹 버전</span></h1>
+    <div class="hint">엑셀(.xlsx/.xls) 또는 CSV 파일의 <b>주소</b>, <b>구분</b>(선택), <b>동</b>(선택) 컬럼을 읽어 지도에 표시합니다. 
+      학교 기준점은 <b>엑셀 B2</b> 셀(첫 시트)에서 자동 추출하거나, 아래 입력란에 직접 입력하실 수 있습니다.</div>
+
+    <div class="grid">
+      <div class="panel">
+        <label>VWorld API Key</label>
+        <input id="apikey" type="text" placeholder="예) 4A1B2C3D... (필수)" />
+
+        <label>데이터 파일 선택 (xlsx / xls / csv)</label>
+        <input id="file" type="file" accept=".xlsx,.xls,.csv" />
+
+        <label>학교 기준 주소 (미입력 시: 엑셀 B2 셀 값 사용)</label>
+        <input id="schoolAddr" type="text" placeholder="예) 경기도 용인시 기흥구 ..." />
+
+        <div class="row" style="margin-top:10px">
+          <button id="runBtn" disabled>지도에 표시</button>
+          <button id="clearBtn">지우기</button>
+        </div>
+
+        <div class="progress"><div id="bar" class="bar" style="width:0%"></div></div>
+        <div id="progLabel" class="hint" style="margin-top:6px"></div>
+
+        <div class="note" style="margin-top:12px">⚠️ 주의사항
+- '로', '길', '동'으로 끝나는 주소 중 번지가 없는 경우 오류 처리
+- 아파트 단지명만은 불가 (정확한 주소 필요)
+- 동/호수는 무시되고 아파트 ‘동’ 단위로 합산 표시
+- 요청은 0.2초 간격으로 순차 호출 (VWorld API 과도 호출 방지)</div>
+
+        <div id="log" class="log" style="margin-top:12px"></div>
+        <div class="footer">제작: 브라우저 전용 단일 HTML · Leaflet + VWorld API</div>
+      </div>
+
+      <div class="panel" style="padding:8px">
+        <div id="map"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ====== 유틸 ======
+const $ = (sel) => document.querySelector(sel);
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function log(msg){
+  const el = $('#log');
+  const time = new Date().toLocaleTimeString();
+  el.innerHTML += `[${time}] ${msg}` + "\n";
+  el.scrollTop = el.scrollHeight;
+}
+
+function setProgress(done, total){
+  const pct = total ? Math.round(done/total*100) : 0;
+  $('#bar').style.width = pct + '%';
+  $('#progLabel').textContent = total ? `진행률: ${done}/${total} (${pct}%)` : '';
+}
+
+function shortenAddress(addr){
+  if(!addr) return '';
+  const re = /^(경기|경기도|서울|서울특별시|부산|부산광역시|대구|대구광역시|인천|인천광역시|광주|광주광역시|대전|대전광역시|울산|울산광역시|세종|세종특별자치시|제주|제주특별자치도)\s*(도\s*)?(?:용인시|광주시|하남시|성남시|수원시|고양시|부천시|안양시|안산시|남양주시|화성시|평택시)?\s*/;
+  return addr.replace(re, '').trim();
+}
+
+function extractDongCounts(popupTexts){
+  const m = new Map();
+  popupTexts.forEach(t=>{
+    const mt = /(\d{2,4}동)/.exec(t);
+    if(mt){ m.set(mt[1], (m.get(mt[1])||0)+1); }
+  });
+  return Array.from(m.entries()); // [dong, cnt]
+}
+
+function buildTooltipText(popupTexts){
+  if(!popupTexts || !popupTexts.length) return '';
+  const mainOnly = popupTexts[0].includes('<br>') ? popupTexts[0].split('<br>')[0] : popupTexts[0];
+  const firstAddr = shortenAddress(mainOnly);
+  const total = popupTexts.length;
+  const dongs = extractDongCounts(popupTexts);
+  if(!dongs.length) return `${firstAddr} [총 ${total}건]`;
+  const items = dongs.map(([dong,c])=>`- ${dong}: ${c}건`);
+  const lines = [];
+  for(let i=0;i<items.length;i+=2){ lines.push(items.slice(i,i+2).join(', \u00A0 ')); }
+  return `${firstAddr} [총 ${total}건]<br>` + lines.join('<br>');
+}
+
+function cleanAddress(address){
+  if(!address) return '';
+  let s = address;
+  s = s.replace(/\d+동\s*\d+호/g,'');
+  s = s.replace(/\d+동/g,'');
+  s = s.replace(/\d+호/g,'');
+  s = s.replace(/[(),]/g,' ').replace(/\s+/g,' ').trim();
+  return s;
+}
+
+function isRoadAddress(address){
+  if(!address) return false;
+  const tokens = address.split(/\s+/);
+  const suffixes = ['로','길','대로','고가','나들목','순환로','로터리'];
+  const last = tokens[tokens.length-1]||'';
+  return suffixes.some(sfx => last.endsWith(sfx));
+}
+
+function hasLotNumber(address){
+  return /\b\d{1,5}\b/.test(address||'');
+}
+
+function onlyDong(address){
+  const tokens = (address||'').trim().split(/\s+/);
+  const last = tokens[tokens.length-1]||'';
+  return (address.endsWith('동') && tokens.length===1) || (last.endsWith('동') && !/[0-9]/.test(last));
+}
+
+function haversineMeters(a,b){
+  const R=6371000; // m
+  const toRad = (d)=> d*Math.PI/180;
+  const dLat = toRad(b[0]-a[0]);
+  const dLon = toRad(b[1]-a[1]);
+  const lat1 = toRad(a[0]);
+  const lat2 = toRad(b[0]);
+  const sinDLat = Math.sin(dLat/2), sinDLon=Math.sin(dLon/2);
+  const h = sinDLat*sinDLat + Math.cos(lat1)*Math.cos(lat2)*sinDLon*sinDLon;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+
+// ====== VWorld 지오코딩 ======
+async function geocodeVWorld(address, key){
+  const type = isRoadAddress(address) ? 'road' : 'parcel';
+  const url = new URL('https://api.vworld.kr/req/address');
+  url.search = new URLSearchParams({
+    service:'address', request:'getcoord', version:'2.0', crs:'EPSG:4326',
+    address, refine:'true', simple:'false', format:'json', type, key
+  }).toString();
+  try{
+    const res = await fetch(url.toString());
+    const data = await res.json();
+    if(data?.response?.status === 'OK'){
+      const p = data.response.result.point;
+      return [parseFloat(p.y), parseFloat(p.x)]; // [lat, lon]
+    }
+  }catch(e){ /* ignore */ }
+  return null;
+}
+
+// ====== 지도 ======
+let map = L.map('map').setView([37.275,127.033], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap'
+}).addTo(map);
+let layerGroup = L.layerGroup().addTo(map);
+
+function clearMap(){
+  layerGroup.clearLayers();
+  setProgress(0,0);
+  $('#progLabel').textContent='';
+  $('#log').textContent='';
+}
+
+// ====== 파일 로딩 ======
+$('#file').addEventListener('change', ()=>{
+  $('#runBtn').disabled = !$('#file').files.length;
+});
+$('#clearBtn').addEventListener('click', clearMap);
+
+$('#runBtn').addEventListener('click', async()=>{
+  const apikey = $('#apikey').value.trim();
+  if(!apikey){ alert('VWorld API Key를 입력해 주세요.'); return; }
+  const f = $('#file').files[0];
+  if(!f){ alert('데이터 파일을 선택해 주세요.'); return; }
+
+  clearMap();
+  log('처리를 시작합니다.');
+
+  const ext = f.name.split('.').pop().toLowerCase();
+  let rows = [];
+  let b2 = '';
+
+  if(['xlsx','xls'].includes(ext)){
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(ws, {defval:'', raw:true});
+    rows = json; // header 기반
+    // B2 셀 추출
+    b2 = (ws['B2'] && ws['B2'].v) ? String(ws['B2'].v).trim() : '';
+  }else if(ext==='csv'){
+    const text = await f.text();
+    const parsed = Papa.parse(text, {header:true, skipEmptyLines:true});
+    rows = parsed.data;
+  }else{
+    alert('지원하지 않는 파일 형식입니다.');
+    return;
+  }
+
+  const schoolInput = $('#schoolAddr').value.trim();
+  const schoolAddr = schoolInput || b2 || '';
+  if(!schoolAddr){
+    alert('학교 기준 주소가 비어 있습니다. 입력란에 직접 입력하시거나, 엑셀 B2 셀에 주소를 넣어 주세요.');
+    return;
+  }
+
+  // 주소 컬럼명 가이드
+  const COL_ADDR = '주소';
+  const COL_GUBUN = '구분';
+  const COL_DONG = '동';
+
+  // 진행상태
+  const total = rows.length;
+  let done = 0, success = 0;
+  const coordCounts = new Map(); // key:"lat,lon" -> count
+  const coordInfos = new Map();  // key -> [popupText]
+
+  // 학교 좌표 먼저
+  log(`학교 기준 주소 지오코딩: ${schoolAddr}`);
+  let schoolCoord = await geocodeVWorld(schoolAddr, apikey);
+  if(!schoolCoord){
+    log('학교 주소 지오코딩 실패: 지도를 계속 그리지만, 반경표시는 생략됩니다.');
+  }
+
+  for(const [i,row] of rows.entries()){
+    const raw = String(row[COL_ADDR]||'').trim();
+    if(!raw){
+      log(`[오류] ${i+2}행: 주소 없음`);
+      done++; setProgress(done,total); continue; }
+
+    const main = raw.includes(',') ? raw.split(',')[0].trim() : raw;
+    const suffix = raw.replace(main,'').replace(/^[,\s()]*/,'').trim();
+    const gubun = String(row[COL_GUBUN]||'').trim();
+    const dong = String(row[COL_DONG]||'').trim();
+    const address = cleanAddress(main);
+
+    const road = isRoadAddress(address);
+    const roadNoLot = road && !hasLotNumber(address);
+    const onlyD = onlyDong(address);
+
+    if(roadNoLot || onlyD){
+      log(`[오류] ${address} → 정확한 번지가 없습니다.`);
+      done++; setProgress(done,total); continue;
+    }
+
+    const coord = await geocodeVWorld(address, apikey);
+    await sleep(200); // rate-limit
+
+    if(coord){
+      success++;
+      const key = coord.join(',');
+      coordCounts.set(key, (coordCounts.get(key)||0)+1);
+      const parts = [address];
+      if(gubun==='아파트' && dong) parts.push(`${dong}동`);
+      if(suffix) parts.push(suffix);
+      const popupText = parts.join('<br>');
+      if(!coordInfos.has(key)) coordInfos.set(key, []);
+      coordInfos.get(key).push(popupText);
+    }else{
+      log(`[실패] ${address} → 주소를 찾을 수 없습니다.`);
+    }
+    done++; setProgress(done,total);
+  }
+
+  // 지도 그리기
+  if(coordCounts.size){
+    // 중심 이동
+    const firstKey = Array.from(coordCounts.keys())[0];
+    const [lat,lon] = firstKey.split(',').map(Number);
+    map.setView([lat,lon], 14);
+
+    // 학교 기준 원 & 마커
+    if(schoolCoord){
+      const [slat, slon] = schoolCoord;
+      const ranges = [500, 1000, 1500, 2000, 2500];
+      const counts = new Map(ranges.map(r=>[r,0]));
+
+      for(const key of coordCounts.keys()){
+        const [clat, clon] = key.split(',').map(Number);
+        const dist = haversineMeters([slat,slon],[clat,clon]);
+        for(const r of ranges){ if(dist <= r){ counts.set(r, counts.get(r)+coordCounts.get(key)); break; } }
+      }
+
+      ranges.forEach(r=>{
+        L.circle([slat, slon], {radius:r, color:'#808080', weight:1, dashArray:'5'}).addTo(layerGroup);
+        const labelLat = slat + (r/1000)/111; // 북쪽으로
+        const labelText = r>=1000 ? `${(r/1000).toFixed(1)}km (${counts.get(r)}건)` : `${r}m (${counts.get(r)}건)`;
+        L.marker([labelLat, slon], {icon: L.divIcon({className:'', html:
+          `<div style="font-size:18px;color:black;font-weight:bold;text-align:center;line-height:1;white-space:nowrap;">${labelText}</div>`})
+        }).addTo(layerGroup);
+      });
+
+      L.circleMarker([slat, slon], {radius:6, color:'red', fill:true, fillColor:'red', fillOpacity:1})
+        .bindTooltip('학교 기준점', {sticky:true})
+        .addTo(layerGroup);
+    }
+
+    // 좌표별 마커
+    for(const [key,count] of coordCounts.entries()){
+      const coord = key.split(',').map(Number);
+      const popupTexts = coordInfos.get(key)||[];
+      const popupHtml = `<ul style="margin:0;padding-left:16px">${popupTexts.map(t=>`<li>${t}</li>`).join('')}</ul>`;
+      const tooltip = buildTooltipText(popupTexts);
+
+      // 반지름 계산 (원 코드 로직 근사)
+      const k = 0.1111; const maxR = 50;
+      let r = count <= 100 ? Math.sqrt(count / k) : 30 + Math.log(count - 99);
+      r = Math.min(r, maxR);
+
+      L.circleMarker(coord, {radius:r, color:'blue', fill:true, fillColor:'blue', fillOpacity:0.8})
+        .bindPopup(popupHtml, {maxWidth:300})
+        .bindTooltip(`<div style="font-size:14px;font-family:'맑은 고딕'">${tooltip}</div>`, {sticky:true})
+        .addTo(layerGroup);
+
+      if(count>1){
+        L.marker(coord, {icon: L.divIcon({className:'', iconSize:[r*2,r*2], iconAnchor:[r,r], html:
+          `<div style="display:flex;justify-content:center;align-items:center;width:${r*2}px;height:${r*2}px;font-size:14px;color:white;font-weight:bold;font-family:'맑은 고딕',sans-serif;text-align:center;border-radius:50%;background:transparent;">${count}</div>`
+        })}).bindTooltip(`<div style="font-size:14px;font-family:'맑은 고딕'">${tooltip}</div>`, {sticky:true}).addTo(layerGroup);
+      }
+    }
+
+    log(`✅ 완료: 총 ${rows.length}건 / 성공 ${success}건 / 실패 ${rows.length - success}건`);
+  }else{
+    log('⛔ 표시할 수 있는 주소가 없습니다.');
+  }
+});
+</script>
+</body>
+</html>
