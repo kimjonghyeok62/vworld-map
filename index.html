@@ -50,7 +50,7 @@
     </div>
 
     <div class="panel">
-      <div class="hint">VWorld API Key: <code>프록시 서버에서 보관</code> (브라우저 노출 없음)</div>
+      <div class="hint">VWorld API Key: <code>GAS 프록시에서 보관</code> (브라우저 노출 없음)</div>
 
       <label>데이터 파일 선택 (xlsx / xls / csv)</label>
       <input id="file" type="file" accept=".xlsx,.xls,.csv" />
@@ -73,7 +73,7 @@
 - 요청은 0.2초 간격으로 순차 호출 (VWorld API 과도 호출 방지)</div>
 
       <div id="log" class="log" style="margin-top:12px"></div>
-      <div class="footer">제작: 브라우저 전용 단일 HTML · Leaflet + VWorld API(프록시) · 결과는 아래 내장 지도에 렌더링</div>
+      <div class="footer">제작: 브라우저 전용 단일 HTML · Leaflet + VWorld API(GAS 프록시) · 결과는 아래 내장 지도에 렌더링</div>
     </div>
   </div>
 
@@ -83,7 +83,8 @@
 
 <script>
 /* ====== 프록시 설정 ====== */
-const PROXY_BASE = 'https://world-map.hyok96.workers.dev'; // ← 프록시 URL
+/* Apps Script 배포 URL(googleusercontent …/exec 둘 다 가능) */
+const PROXY_BASE = 'https://script.googleusercontent.com/macros/echo?user_content_key=AehSKLhESd22bY4rLZn8FmWUtzhlnCxmHTyXIGvDHu3ZFDGFGFeVl201xQCGElML2lxqNsQJ1bmpB46qiZM6ckJOlwAz0v4qELX9j8EIE7AX-zraN9x6zEuIeeBtrC-Fd9FPeqqYb14lX8y8DH6NFAavP0zppkGcKUIxbWeN9IVJiL8W3-gYA63pt0Upsagy8IFNy4tqjh5xo5rl-KZyefUEKi-9FucK7sXRtA40YI9luNVSqgZrkPc9ygt6KqE8fXBfBxrpSwLBUWfi-yQxA7Pp6T00sQdnniAt990h-PHl7_7shze4EV_lFezLLLiF6jhqPATMHArKrzot4j2xUs4_7g_nOypjnujLew-Rv_G14bu2TuH486kTpnmGHGn_Xq-mfFTAlLVhMzwIFw-vAuoGXsZ827FnD7n2AIsjRQiibMkchpRHR5GIp5bnT3p_-C73dAxsiuuu_6IejQxbk0c&lib=MQ7laLgDF9nfqmQtPYaGiikNuMfdVTsJR';
 
 /* ====== 유틸 ====== */
 const $ = s => document.querySelector(s);
@@ -245,6 +246,7 @@ $('#runBtn').addEventListener('click', async()=>{
 
     const main   = raw.includes(',') ? raw.split(',')[0].trim() : raw;
     const suffix = raw.replace(main,'').trim().replace(/^,?\s*/,'');
+
     const gubun  = String(row[colGubun]||'').trim();
     const dong   = String(row[colDong]||'').trim();
 
