@@ -48,15 +48,8 @@
       -webkit-backdrop-filter: blur(4px);
       font-size: 13px;
     }
-    .basemap-control .title{
-      color: var(--muted);
-      font-size: 12px;
-      margin: 0 0 6px;
-      letter-spacing:.02em;
-    }
-    .basemap-control .options{
-      display:flex; gap:8px; align-items:center;
-    }
+    .basemap-control .title{color: var(--muted);font-size: 12px;margin: 0 0 6px;letter-spacing:.02em;}
+    .basemap-control .options{display:flex; gap:8px; align-items:center;}
     .basemap-control label.option{
       display:inline-flex; gap:6px; align-items:center;
       padding:6px 10px; border-radius:999px;
@@ -65,26 +58,52 @@
       user-select:none; cursor:pointer;
       transition: border-color .15s, background .15s;
     }
-    .basemap-control label.option:hover{
-      border-color:#5b8cff; background:rgba(91,140,255,.08);
+    .basemap-control label.option:hover{ border-color:#5b8cff; background:rgba(91,140,255,.08); }
+    .basemap-control input[type=radio]{ accent-color:#5b8cff; transform:scale(1.05); }
+
+    /* 보조 버튼 스타일 */
+    .ghost-btn{
+      background:transparent; color:#cfe0ff; border:1px solid var(--line);
+      font-weight:600;
     }
-    .basemap-control input[type=radio]{
-      accent-color:#5b8cff; transform:scale(1.05);
-    }
+    .ghost-btn:hover{ border-color:#5b8cff; background:rgba(91,140,255,.08); }
+    details.hint{background:#0f1530;border:1px solid var(--line);border-radius:10px;padding:10px}
+    details.hint summary{cursor:pointer}
+    .mini-table{border-collapse:collapse;font-size:.9rem;margin-top:8px}
+    .mini-table td,.mini-table th{border:1px solid #2a3360;padding:6px 8px}
+    .mini-table th{background:#0f1530}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>📍 VWorld 주소 지도 표시 <span class="pill">웹</span></h1>
-    <div class="hint">엑셀/CSV의 <b>주소</b>, <b>구분</b>(선택), <b>동</b>(선택)을 읽어 지도에 표시합니다. 학교 주소는 입력란 또는 엑셀 <b>B2</b>(선택).</div>
+    <div class="hint">엑셀/CSV의 <b>주소</b>(예: <u>학생주소</u>), <b>구분</b>(선택), <b>동</b>(선택)을 읽어 지도에 표시합니다. 학교 주소는 입력란 또는 엑셀 <b>B2</b>(선택).</div>
 
     <div class="panel">
       <div class="hint">VWorld Key는 <code>Apps Script 프록시</code>에서 보관됩니다.</div>
 
       <label>데이터 파일 선택 (xlsx / xls / csv)</label>
-      <input id="file" type="file" accept=".xlsx,.xls,.csv"/>
+      <div class="row">
+        <input id="file" type="file" accept=".xlsx,.xls,.csv"/>
+        <button id="dlTplBtn" class="ghost-btn" type="button" title="엑셀 템플릿을 내려받습니다.">엑셀 템플릿 다운로드</button>
+      </div>
 
-      <label>학교 기준 주소 (선택)</label>
+      <details class="hint" style="margin-top:8px">
+        <summary>양식 안내(접기/펼치기)</summary>
+        <div style="margin-top:8px">
+          - <b>A1</b>: <code>학생주소</code> (필수) · <b>A2~</b>: 실제 주소들 입력<br>
+          - <b>B1</b>: <code>학교주소</code> (선택) · <b>B2</b>: 기준 학교 주소 1건 입력<br>
+          <table class="mini-table">
+            <tr><th>A</th><th>B</th></tr>
+            <tr><td><b>학생주소</b></td><td><b>학교주소</b></td></tr>
+            <tr><td>경기도 용인시 기흥구 …</td><td>경기도 용인시 …(학교주소)</td></tr>
+            <tr><td>경기도 용인시 처인구 …</td><td></td></tr>
+          </table>
+          ※ CSV로 업로드 시에는 <b>B2</b>를 읽을 수 없으므로, 아래 “학교 기준 주소” 입력란을 사용하세요.
+        </div>
+      </details>
+
+      <label style="margin-top:10px">학교 기준 주소 (선택)</label>
       <input id="schoolAddr" type="text" placeholder="입력 시 반경/거리 라벨 표시"/>
 
       <div class="row" style="margin-top:12px">
@@ -154,6 +173,20 @@ function build_tooltip_text(popup_texts){
   return `${first} [총 ${total}건]<br>`+lines.join('<br>');
 }
 
+/* 엑셀 템플릿 다운로드 */
+function downloadTemplateXLSX(){
+  const wb = XLSX.utils.book_new();
+  const data = [
+    ['학생주소','학교주소'],   // A1, B1
+    ['', ''],                 // A2, B2 (사용자 입력용)
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  ws['!freeze'] = { xSplit:0, ySplit:1 };
+  ws['!cols'] = [{ wch: 42 }, { wch: 42 }];
+  XLSX.utils.book_append_sheet(wb, ws, '주소입력');
+  XLSX.writeFile(wb, '업로드_할_주소(양식).xlsx');
+}
+
 /* 지오코딩 */
 async function geocodeVWorld(address){
   const primary = is_road_address(address) ? 'road' : 'parcel';
@@ -190,13 +223,8 @@ function setBasemap(mode){
   if(CURRENT_BASE) MAP.removeLayer(CURRENT_BASE);
   CURRENT_BASE = (mode==='sat') ? BASE_SAT : BASE_OSM;
   CURRENT_BASE.addTo(MAP);
-  // 컨트롤 라디오 상태 동기화
-  if(BASEMAP_RADIOS){
-    BASEMAP_RADIOS.forEach(r => r.checked = (r.value === mode));
-  }
+  if(BASEMAP_RADIOS){ BASEMAP_RADIOS.forEach(r => r.checked = (r.value === mode)); }
 }
-
-/* 지도 위 라디오 컨트롤 */
 function addBasemapControl(){
   const Control = L.Control.extend({
     options:{position:'topleft'},
@@ -208,41 +236,24 @@ function addBasemapControl(){
           <label class="option"><input type="radio" name="bm" value="osm" checked> 일반</label>
           <label class="option"><input type="radio" name="bm" value="sat"> 위성</label>
         </div>`;
-      // 지도 제스처와 충돌 방지
       L.DomEvent.disableClickPropagation(div);
-      // 이벤트
       BASEMAP_RADIOS = div.querySelectorAll('input[name="bm"]');
-      BASEMAP_RADIOS.forEach(r=>{
-        r.addEventListener('change', e => setBasemap(e.target.value));
-      });
+      BASEMAP_RADIOS.forEach(r=>r.addEventListener('change', e => setBasemap(e.target.value)));
       return div;
     }
   });
   (new Control()).addTo(MAP);
 }
-
 function ensureMap(center=[37.5665,126.9780], zoom=12){
   if(!MAP){
     MAP = L.map('map').setView(center, zoom);
-
-    // 일반지도 (OSM)
-    BASE_OSM = L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}
-    );
-
-    // 위성지도 (Esri World Imagery)
-    BASE_SAT = L.tileLayer(
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      {maxZoom:19, attribution:'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'}
-    );
-
+    BASE_OSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'});
+    BASE_SAT = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {maxZoom:19, attribution:'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'});
     CURRENT_BASE = BASE_OSM.addTo(MAP);
     MAP_LAYER = L.layerGroup().addTo(MAP);
-
-    addBasemapControl();         // ← 지도 위 라디오 컨트롤
-    setBasemap('osm');           // 초기 상태 동기화
-
+    addBasemapControl(); setBasemap('osm');
     window.addEventListener('resize', ()=>setTimeout(()=>MAP.invalidateSize(), 50));
     setTimeout(()=>MAP.invalidateSize(), 50);
   }
@@ -253,7 +264,7 @@ function renderMap(payload){
   ensureMap(payload.center||[37.5665,126.9780], payload.zoom||13);
   MAP_LAYER.clearLayers();
 
-  // 반경(회색 채움 제거)
+  // 반경표시
   if(payload.school && payload.school.coord){
     const [slat, slon] = payload.school.coord;
     const ranges=[500,1000,1500,2000,2500];
@@ -261,10 +272,7 @@ function renderMap(payload){
     const hav=(a,b)=>{const R=6371000,toRad=d=>d*Math.PI/180;const dLat=toRad(b[0]-a[0]),dLon=toRad(b[1]-a[1]);const lat1=toRad(a[0]),lat2=toRad(b[0]);const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(h));};
     (payload.points||[]).forEach(p=>{ const d=hav([slat,slon],[p.lat,p.lon]); for(const r of ranges){ if(d<=r){ counts.set(r, counts.get(r)+p.count); break; } } });
     ranges.forEach(r=>{
-      L.circle([slat, slon], {
-        radius:r, color:'#666', weight:2, dashArray:'6 4',
-        fill:false, fillOpacity:0
-      }).addTo(MAP_LAYER);
+      L.circle([slat, slon], { radius:r, color:'#666', weight:2, dashArray:'6 4', fill:false, fillOpacity:0 }).addTo(MAP_LAYER);
       const labelLat = slat + (r/1000)/111;
       const txt = r>=1000 ? (r/1000).toFixed(1)+`km (${counts.get(r)}건)` : r+`m (${counts.get(r)}건)`;
       L.marker([labelLat, slon], {icon:L.divIcon({className:'', html:`<div style="font-size:18px;font-weight:bold;white-space:nowrap;color:black">${txt}</div>`})}).addTo(MAP_LAYER);
@@ -277,7 +285,6 @@ function renderMap(payload){
   (payload.points||[]).forEach(p=>{
     latlngs.push([p.lat,p.lon]);
 
-    // 면적 ∝ 건수
     const SCALE=0.5, BASE_R=8, MIN_R=4, MAX_R=28;
     let r = BASE_R * Math.sqrt(Math.max(1, p.count)) * SCALE;
     r = Math.max(MIN_R, Math.min(MAX_R, r));
@@ -285,7 +292,6 @@ function renderMap(payload){
     const popupHtml = '<ul style="margin:0;padding-left:16px">'+(p.popupTexts||[]).map(t=>'<li>'+t+'</li>').join('')+'</ul>';
     const tip = build_tooltip_text(p.popupTexts||[]);
 
-    // 더 진한 파란색 + 테두리/그림자
     const iconHtml = `
       <div style="
         width:${r*2}px;height:${r*2}px;border-radius:50%;
@@ -293,13 +299,8 @@ function renderMap(payload){
         font-weight:700;font-size:${Math.max(11, r*0.9)}px;
         color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);
         background: radial-gradient(circle at 35% 30%, #3a6cff 0%, #1f50ff 45%, #0032cc 100%);
-        box-shadow:
-          0 3px 12px rgba(0,0,0,.4),
-          0 0 0 2px rgba(255,255,255,.95);
-      ">
-        ${p.count>1 ? p.count : ''}
-      </div>`;
-
+        box-shadow: 0 3px 12px rgba(0,0,0,.4), 0 0 0 2px rgba(255,255,255,.95);
+      ">${p.count>1 ? p.count : ''}</div>`;
     const icon = L.divIcon({ className:'', iconSize:[r*2,r*2], iconAnchor:[r,r], html: iconHtml });
 
     L.marker([p.lat,p.lon], {icon})
@@ -329,6 +330,7 @@ async function readRowsFromFile(file){
 }
 
 /* 실행 */
+$('#dlTplBtn').addEventListener('click', downloadTemplateXLSX);
 $('#clearBtn').addEventListener('click', ()=>{ $('#log').textContent=''; $('#bar').style.width='0%'; $('#progLabel').textContent=''; });
 
 $('#runBtn').addEventListener('click', async()=>{
@@ -343,7 +345,26 @@ $('#runBtn').addEventListener('click', async()=>{
 
   const norm = s=>String(s||'').replace(/\s+/g,'').toLowerCase();
   const head = rows.length? Object.keys(rows[0]) : [];
-  const colAddr = head.find(h=>['주소','address'].includes(norm(h))) || '주소';
+
+  // 주소 컬럼 탐색: 학생주소 > 주소 > address > (포괄) "주소" 포함(단, "학교주소" 제외)
+  function findAddrHeader(headers){
+    const exactOrder = ['학생주소','주소','address'];
+    for(const key of exactOrder){
+      const found = headers.find(h => norm(h) === norm(key));
+      if(found) return found;
+    }
+    // "학생.*주소" 같은 변형 우선
+    let found = headers.find(h => /학생.*주소/i.test(h));
+    if(found) return found;
+    // "주소"로 끝나되 "학교"를 포함하지 않는 항목
+    found = headers.find(h => /주소$/i.test(h) && !/학교/i.test(h));
+    if(found) return found;
+    // 일반 "주소" 포함(학교주소 제외)
+    found = headers.find(h => /주소/i.test(h) && !/학교/i.test(h));
+    return found || '주소';
+  }
+
+  const colAddr = findAddrHeader(head);
   const colGubun= head.find(h=>['구분','category','type'].includes(norm(h))) || '구분';
   const colDong = head.find(h=>['동','building','dong'].includes(norm(h))) || '동';
 
@@ -410,6 +431,11 @@ $('#runBtn').addEventListener('click', async()=>{
       : {center:[37.5665,126.9780], zoom:12, points:[]};
     renderMap(fb); log('⛔ 표시할 수 있는 주소가 없습니다.');
   }
+});
+
+// 초기 바인딩
+document.addEventListener('DOMContentLoaded', ()=>{
+  // nothing yet
 });
 </script>
 </body>
