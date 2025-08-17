@@ -33,6 +33,8 @@
     .map-wrap{width:100vw}
     #map{width:100vw;height:100vh;background:#0f1530;border-top:1px solid var(--line);display:block}
     .leaflet-div-icon{background:transparent!important;border:0!important}
+    .mode-wrap{display:flex;gap:14px;align-items:center;margin:10px 0 0}
+    .mode-wrap label{display:inline-flex;gap:6px;align-items:center;margin:0}
   </style>
 </head>
 <body>
@@ -49,7 +51,16 @@
       <label>학교 기준 주소 (선택)</label>
       <input id="schoolAddr" type="text" placeholder="입력 시 반경/거리 라벨 표시"/>
 
-      <div class="row" style="margin-top:10px">
+      <!-- 지도 유형 선택 -->
+      <div style="margin-top:10px">
+        <div class="hint" style="margin-bottom:6px">지도 유형</div>
+        <div class="mode-wrap">
+          <label><input type="radio" name="basemap" value="osm" checked> 일반지도</label>
+          <label><input type="radio" name="basemap" value="sat"> 위성지도</label>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
         <button id="runBtn">지도에 표시</button>
         <button id="clearBtn">로그 지우기</button>
       </div>
@@ -61,7 +72,7 @@
 - 도로명인데 번지(숫자) 없으면 오류
 - 단지명만은 불가
 - 동/호수는 무시되고 ‘동’ 단위로 합산
-- 호출 간격 0.2초(과다호출 방지)</div>
+- 호출 간격 0.1초(과다호출 방지)</div>
 
       <div id="log" class="log" style="margin-top:12px"></div>
       <div class="footer">Leaflet + VWorld(프록시) · 아래 내장 지도에 렌더링</div>
@@ -71,6 +82,7 @@
   <div class="map-wrap"><div id="map"></div></div>
 
 <script>
+/* Apps Script 웹앱(/exec) URL */
 const PROXY_BASE = 'https://script.google.com/macros/s/AKfycbwELVvtv8iNqyn6ltYMY2hr77w8F_Ksy34TDi9kMj6Qy5runtboRU6QSWlTjBAHzo5z/exec';
 
 const $ = s => document.querySelector(s);
@@ -79,6 +91,7 @@ const log = msg => { const el=$('#log'); const t=new Date().toLocaleTimeString()
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 function setProgress(done,total,current){ const pct= total? Math.round(done/total*100):0; $('#bar').style.width=pct+'%'; $('#progLabel').innerHTML = total? `진행률: ${done}/${total} (${pct}%)` + (current? `<br>현재: <code>${esc(current)}</code>`:'') : ''; }
 
+/* 전처리/도메인 로직 */
 function clean_address(a){
   a = String(a||'');
   a = a.replace(/\d+\s*동\s*\d+\s*호/g,'');
@@ -114,6 +127,7 @@ function build_tooltip_text(popup_texts){
   return `${first} [총 ${total}건]<br>`+lines.join('<br>');
 }
 
+/* 지오코딩 */
 async function geocodeVWorld(address){
   const primary = is_road_address(address) ? 'road' : 'parcel';
   const order = primary==='road' ? ['road','parcel'] : ['parcel','road'];
@@ -121,7 +135,7 @@ async function geocodeVWorld(address){
     const u = new URL(PROXY_BASE);
     u.searchParams.set('address', address);
     u.searchParams.set('type', type);
-    u.searchParams.set('_ts', Date.now());
+    u.searchParams.set('_ts', Date.now()); // 캐시 회피
     try{
       const res = await fetch(u.toString(), { method:'GET', cache:'no-store' });
       const data = await res.json();
@@ -139,22 +153,55 @@ async function geocodeVWorld(address){
   return null;
 }
 
-/* 지도 */
+/* 지도/베이스맵 */
 let MAP=null, MAP_LAYER=null;
+let BASE_OSM=null, BASE_SAT=null, CURRENT_BASE=null;
+
+function setBasemap(mode){
+  if(!MAP) return;
+  if(CURRENT_BASE) MAP.removeLayer(CURRENT_BASE);
+  CURRENT_BASE = (mode==='sat') ? BASE_SAT : BASE_OSM;
+  CURRENT_BASE.addTo(MAP);
+}
+
+function setupBasemapSwitcher(){
+  document.querySelectorAll('input[name="basemap"]').forEach(r=>{
+    r.addEventListener('change', e=> setBasemap(e.target.value));
+  });
+}
+
 function ensureMap(center=[37.5665,126.9780], zoom=12){
   if(!MAP){
     MAP = L.map('map').setView(center, zoom);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19, attribution:'&copy; OpenStreetMap'}).addTo(MAP);
+
+    // 일반지도 (OSM)
+    BASE_OSM = L.tileLayer(
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'}
+    );
+
+    // 위성지도 (Esri World Imagery)
+    BASE_SAT = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      {maxZoom:19, attribution:'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community'}
+    );
+
+    CURRENT_BASE = BASE_OSM.addTo(MAP);
     MAP_LAYER = L.layerGroup().addTo(MAP);
+
+    setupBasemapSwitcher();
+
     window.addEventListener('resize', ()=>setTimeout(()=>MAP.invalidateSize(), 50));
     setTimeout(()=>MAP.invalidateSize(), 50);
   }
 }
+
+/* 렌더링 */
 function renderMap(payload){
   ensureMap(payload.center||[37.5665,126.9780], payload.zoom||13);
   MAP_LAYER.clearLayers();
 
-  /* 반경: 회색 채움 제거 */
+  // 반경(회색 채움 제거)
   if(payload.school && payload.school.coord){
     const [slat, slon] = payload.school.coord;
     const ranges=[500,1000,1500,2000,2500];
@@ -164,7 +211,7 @@ function renderMap(payload){
     ranges.forEach(r=>{
       L.circle([slat, slon], {
         radius:r, color:'#666', weight:2, dashArray:'6 4',
-        fill:false, fillOpacity:0   /* ← 채움 제거 */
+        fill:false, fillOpacity:0
       }).addTo(MAP_LAYER);
       const labelLat = slat + (r/1000)/111;
       const txt = r>=1000 ? (r/1000).toFixed(1)+`km (${counts.get(r)}건)` : r+`m (${counts.get(r)}건)`;
@@ -173,11 +220,12 @@ function renderMap(payload){
     L.circleMarker([slat,slon], {radius:6,color:'red',fill:true,fillColor:'red',fillOpacity:1}).bindTooltip('학교 기준점',{sticky:true}).addTo(MAP_LAYER);
   }
 
+  // 포인트
   const latlngs=[];
   (payload.points||[]).forEach(p=>{
     latlngs.push([p.lat,p.lon]);
 
-    /* 마커 크기(면적 ∝ 건수) */
+    // 면적 ∝ 건수
     const SCALE=0.5, BASE_R=8, MIN_R=4, MAX_R=28;
     let r = BASE_R * Math.sqrt(Math.max(1, p.count)) * SCALE;
     r = Math.max(MIN_R, Math.min(MAX_R, r));
@@ -185,7 +233,7 @@ function renderMap(payload){
     const popupHtml = '<ul style="margin:0;padding-left:16px">'+(p.popupTexts||[]).map(t=>'<li>'+t+'</li>').join('')+'</ul>';
     const tip = build_tooltip_text(p.popupTexts||[]);
 
-    /* 더 진한 파란색 그라데이션 + 외곽선/그림자 */
+    // 더 진한 파란색 + 테두리/그림자
     const iconHtml = `
       <div style="
         width:${r*2}px;height:${r*2}px;border-radius:50%;
