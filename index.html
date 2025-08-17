@@ -71,7 +71,7 @@
 
 <script>
 /* ====== 프록시 URL: 본인 Apps Script 배포 주소로 교체 가능 ====== */
-const PROXY_BASE = 'https://script.googleusercontent.com/macros/echo?user_content_key=AehSKLhESd22bY4rLZn8FmWUtzhlnCxmHTyXIGvDHu3ZFDGFGFeVl201xQCGElML2lxqNsQJ1bmpB46qiZM6ckJOlwAz0v4qELX9j8EIE7AX-zraN9x6zEuIeeBtrC-Fd9FPeqqYb14lX8y8DH6NFAavP0zppkGcKUIxbWeN9IVJiL8W3-gYA63pt0Upsagy8IFNy4tqjh5xo5rl-KZyefUEKi-9FucK7sXRtA40YI9luNVSqgZrkPc9ygt6KqE8fXBfBxrpSwLBUWfi-yQxA7Pp6T00sQdnniAt990h-PHl7_7shze4EV_lFezLLLiF6jhqPATMHArKrzot4j2xUs4_7g_nOypjnujLew-Rv_G14bu2TuH486kTpnmGHGn_Xq-mfFTAlLVhMzwIFw-vAuoGXsZ827FnD7n2AIsjRQiibMkchpRHR5GIp5bnT3p_-C73dAxsiuuu_6IejQxbk0c&lib=MQ7laLgDF9nfqmQtPYaGiikNuMfdVTsJR';
+const PROXY_BASE = 'https://script.google.com/macros/s/AKfycbwELVvtv8iNqyn6ltYMY2hr77w8F_Ksy34TDi9kMj6Qy5runtboRU6QSWlTjBAHzo5z/exec';
 
 /* ====== 유틸 ====== */
 const $ = s => document.querySelector(s);
@@ -271,7 +271,7 @@ $('#runBtn').addEventListener('click', async()=>{
     setProgress(done,total, cleaned); log(`지오코딩: ${cleaned}`);
 
     const coord = await geocodeVWorld(cleaned);
-    await sleep(200);
+    await sleep(100);
 
     if(coord){
       success++;
