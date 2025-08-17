@@ -3,13 +3,11 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VWorld 주소 지도 표시 (웹 버전)</title>
+  <title>VWorld 주소 지도 표시 (웹)</title>
 
-  <!-- SheetJS / PapaParse -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
-  <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin></script>
 
@@ -22,41 +20,33 @@
     .hint{color:var(--muted);font-size:.95rem;margin-bottom:12px}
     .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px}
     label{display:block;margin:10px 0 6px}
-    input[type="text"], input[type="file"]{
-      width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0f1530;color:var(--txt)
-    }
+    input[type="text"], input[type="file"]{width:100%;padding:10px;border-radius:10px;border:1px solid var(--line);background:#0f1530;color:var(--txt)}
     button{cursor:pointer;background:var(--accent);color:white;border:none;padding:10px 14px;border-radius:12px;font-weight:700}
     button[disabled]{opacity:.6;cursor:not-allowed}
-    .row{display:flex;gap:8px;align-items:center}
-    .row > *{flex:1}
+    .row{display:flex;gap:8px;align-items:center}.row>*{flex:1}
     .progress{height:10px;background:#0f1530;border-radius:999px;overflow:hidden;border:1px solid var(--line);margin-top:8px}
     .bar{height:100%;background:linear-gradient(90deg,#688fff,#86a7ff)}
     .log{height:360px;overflow:auto;background:#0f1530;border:1px solid var(--line);border-radius:10px;padding:10px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:pre}
     .note{color:#ffb4b4;white-space:pre-line}
     .pill{display:inline-block;padding:.2rem .6rem;border-radius:999px;background:#143268;color:#d7e4ff;font-size:.8rem;margin-left:.5rem}
     .footer{color:var(--muted);font-size:.85rem;margin-top:10px}
-    .map-wrap{width:100vw}
-    #map{width:100vw;height:100vh;background:#0f1530;border-top:1px solid var(--line);display:block}
-    /* 숫자 오버레이의 흰 네모 제거 */
+    .map-wrap{width:100vw} #map{width:100vw;height:100vh;background:#0f1530;border-top:1px solid var(--line);display:block}
     .leaflet-div-icon{background:transparent!important;border:0!important}
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>📍 VWorld 주소 지도 표시 <span class="pill">웹</span></h1>
-    <div class="hint">
-      엑셀(.xlsx/.xls) 또는 CSV의 <b>주소</b>, <b>구분</b>(선택), <b>동</b>(선택)을 읽어 지도에 표시합니다.<br>
-      학교 기준 주소는 입력란 또는 엑셀 <b>B2</b>에서 자동 인식합니다(미입력/실패 시 반경표시 생략).
-    </div>
+    <div class="hint">엑셀/CSV의 <b>주소</b>, <b>구분</b>(선택), <b>동</b>(선택)을 읽어 지도에 표시합니다. 학교 주소는 입력란 또는 엑셀 <b>B2</b>(선택).</div>
 
     <div class="panel">
-      <div class="hint">VWorld API Key: <code>Apps Script 프록시에서 보관</code> (브라우저 노출 없음)</div>
+      <div class="hint">VWorld Key는 <code>Apps Script 프록시</code>에서 보관됩니다.</div>
 
       <label>데이터 파일 선택 (xlsx / xls / csv)</label>
-      <input id="file" type="file" accept=".xlsx,.xls,.csv" />
+      <input id="file" type="file" accept=".xlsx,.xls,.csv"/>
 
       <label>학교 기준 주소 (선택)</label>
-      <input id="schoolAddr" type="text" placeholder="입력 시 반경/거리 라벨 표시" />
+      <input id="schoolAddr" type="text" placeholder="입력 시 반경/거리 라벨 표시"/>
 
       <div class="row" style="margin-top:10px">
         <button id="runBtn">지도에 표시</button>
@@ -67,62 +57,51 @@
       <div id="progLabel" class="hint" style="margin-top:6px"></div>
 
       <div class="note" style="margin-top:12px">⚠️ 주의
-- '로', '길' 등 도로명인데 번지(숫자)가 없으면 오류 처리
-- 단지명만은 불가(정확한 주소 필요)
-- 동/호수는 무시되고 ‘동’ 단위로 합산 표시
-- 요청은 0.2초 간격으로 순차 호출</div>
+- 도로명인데 번지(숫자) 없으면 오류
+- 단지명만은 불가
+- 동/호수는 무시되고 ‘동’ 단위로 합산
+- 호출 간격 0.2초(과다호출 방지)</div>
 
       <div id="log" class="log" style="margin-top:12px"></div>
-      <div class="footer">Leaflet + VWorld(GAS 프록시) · 결과는 아래 내장 지도에 렌더링</div>
+      <div class="footer">Leaflet + VWorld(프록시) · 아래 내장 지도에 렌더링</div>
     </div>
   </div>
 
   <div class="map-wrap"><div id="map"></div></div>
 
 <script>
-/* ====== 프록시 URL (본인 Apps Script 배포 주소로 교체) ====== */
+/* ====== 프록시 URL: 본인 Apps Script 배포 주소로 교체 가능 ====== */
 const PROXY_BASE = 'https://script.googleusercontent.com/macros/echo?user_content_key=AehSKLhESd22bY4rLZn8FmWUtzhlnCxmHTyXIGvDHu3ZFDGFGFeVl201xQCGElML2lxqNsQJ1bmpB46qiZM6ckJOlwAz0v4qELX9j8EIE7AX-zraN9x6zEuIeeBtrC-Fd9FPeqqYb14lX8y8DH6NFAavP0zppkGcKUIxbWeN9IVJiL8W3-gYA63pt0Upsagy8IFNy4tqjh5xo5rl-KZyefUEKi-9FucK7sXRtA40YI9luNVSqgZrkPc9ygt6KqE8fXBfBxrpSwLBUWfi-yQxA7Pp6T00sQdnniAt990h-PHl7_7shze4EV_lFezLLLiF6jhqPATMHArKrzot4j2xUs4_7g_nOypjnujLew-Rv_G14bu2TuH486kTpnmGHGn_Xq-mfFTAlLVhMzwIFw-vAuoGXsZ827FnD7n2AIsjRQiibMkchpRHR5GIp5bnT3p_-C73dAxsiuuu_6IejQxbk0c&lib=MQ7laLgDF9nfqmQtPYaGiikNuMfdVTsJR';
 
 /* ====== 유틸 ====== */
 const $ = s => document.querySelector(s);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const log = (msg) => { const el=$('#log'); const t=new Date().toLocaleTimeString(); el.textContent += `[${t}] ${msg}\n`; el.scrollTop = el.scrollHeight; };
+const log = msg => { const el=$('#log'); const t=new Date().toLocaleTimeString(); el.textContent += `[${t}] ${msg}\n`; el.scrollTop = el.scrollHeight; };
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-function setProgress(done,total,current){
-  const pct = total ? Math.round(done/total*100) : 0;
-  $('#bar').style.width = pct + '%';
-  $('#progLabel').innerHTML = total
-    ? `진행률: ${done}/${total} (${pct}%)` + (current? `<br>현재: <code>${esc(current)}</code>` : '')
-    : '';
-}
+function setProgress(done,total,current){ const pct= total? Math.round(done/total*100):0; $('#bar').style.width=pct+'%'; $('#progLabel').innerHTML = total? `진행률: ${done}/${total} (${pct}%)` + (current? `<br>현재: <code>${esc(current)}</code>`:'') : ''; }
 
 /* ====== 파이썬과 동일한 전처리/판별 ====== */
-// clean_address: 1502동 703호 등 제거 + 양끝 쉼표/괄호 제거
 function clean_address(a){
   a = String(a||'');
-  a = a.replace(/\d+\s*동\s*\d+\s*호/g,'');
-  a = a.replace(/\d+\s*동/g,'');
-  a = a.replace(/\d+\s*호/g,'');
-  a = a.trim().replace(/^[,()\s]+|[,()\s]+$/g,'');
-  return a.trim();
+  a = a.replace(/\d+\s*동\s*\d+\s*호/g,'');  // 1502동 703호
+  a = a.replace(/\d+\s*동/g,'');            // 1502동
+  a = a.replace(/\d+\s*호/g,'');            // 703호
+  a = a.replace(/[()]/g,' ');               // 괄호 -> 공백
+  a = a.replace(/,/g,' ');                  // 쉼표 -> 공백 (자르지 않음!)
+  a = a.replace(/\s+/g,' ').trim();
+  return a;
 }
-// is_road_address: 토큰이 로/길/대로/고가/나들목/순환로/로터리로 끝나면 도로명
 function is_road_address(a){
-  const road_keywords = ["로","길","대로","고가","나들목","순환로","로터리"];
+  const road_keywords = ["로","길","대로","고가","나들목","순환로","로터리","번길"];
   const tokens = String(a||'').split(/\s+/);
   return tokens.some(tok => road_keywords.some(k => tok.endsWith(k)));
 }
 function shorten_address(a){
-  return String(a||'').replace(
-    /^(경기|경기도|서울|서울특별시|부산|부산광역시|대구|대구광역시|인천|인천광역시|광주|광주광역시|대전|대전광역시|울산|울산광역시|세종|세종특별자치시|제주|제주특별자치도)\s*(도\s*)?(?:용인시|광주시|하남시|성남시|수원시|고양시|부천시|안양시|안산시|남양주시|화성시|평택시)?\s*/,''
-  ).trim();
+  return String(a||'').replace(/^(경기|경기도|서울|서울특별시|부산|부산광역시|대구|대구광역시|인천|인천광역시|광주|광주광역시|대전|대전광역시|울산|울산광역시|세종|세종특별자치시|제주|제주특별자치도)\s*(도\s*)?(?:용인시|광주시|하남시|성남시|수원시|고양시|부천시|안양시|안산시|남양주시|화성시|평택시)?\s*/,'').trim();
 }
 function extract_dong_counts(popup_texts){
-  const m=new Map();
-  (popup_texts||[]).forEach(t=>{
-    const x=String(t).match(/(\d{2,4}동)/);
-    if(x) m.set(x[1], (m.get(x[1])||0)+1);
-  });
+  const m = new Map();
+  (popup_texts||[]).forEach(t=>{ const x=String(t).match(/(\d{2,4}동)/); if(x){ m.set(x[1],(m.get(x[1])||0)+1); } });
   return m;
 }
 function build_tooltip_text(popup_texts){
@@ -130,26 +109,28 @@ function build_tooltip_text(popup_texts){
   const main_only = popup_texts[0].split('<br>')[0];
   const first = shorten_address(main_only);
   const total = popup_texts.length;
-  const dongMap = extract_dong_counts(popup_texts);
-  if(!dongMap.size) return `${first} [총 ${total}건]`;
-  const items = Array.from(dongMap.entries()).map(([d,c])=>`- ${d}: ${c}건`);
+  const dm = extract_dong_counts(popup_texts);
+  if(!dm.size) return `${first} [총 ${total}건]`;
+  const items = Array.from(dm.entries()).map(([d,c])=>`- ${d}: ${c}건`);
   const lines=[]; for(let i=0;i<items.length;i+=2) lines.push(items.slice(i,i+2).join(',  '));
-  return `${first} [총 ${total}건]<br>` + lines.join('<br>');
+  return `${first} [총 ${total}건]<br>`+lines.join('<br>');
 }
 
-/* ====== 지오코딩 (Apps Script 프록시) ====== */
+/* ====== 지오코딩 (프록시) – 캐시 회피용 _ts 추가 ====== */
 async function geocodeVWorld(address){
-  const primaryType = is_road_address(address) ? 'road' : 'parcel';
-  const tryOrder = primaryType === 'road' ? ['road','parcel'] : ['parcel','road'];
-  for (const type of tryOrder){
+  const primary = is_road_address(address) ? 'road' : 'parcel';
+  const order = primary==='road' ? ['road','parcel'] : ['parcel','road'];
+  for (const type of order){
     const u = new URL(PROXY_BASE);
     u.searchParams.set('address', address);
     u.searchParams.set('type', type);
+    u.searchParams.set('_ts', Date.now());   // 캐시 방지
     try{
-      const res = await fetch(u.toString());
+      const res = await fetch(u.toString(), { method:'GET', cache:'no-store' });
       const data = await res.json();
       if (data?.response?.status === 'OK' && data?.response?.result?.point){
         const p = data.response.result.point;
+        if (data?.response?.refined?.text) log(`↳ 매칭: ${data.response.refined.text}`);
         return [parseFloat(p.y), parseFloat(p.x)];
       } else {
         log(`[VWorld/Proxy] FAIL(${type}) ${address}`);
@@ -176,69 +157,48 @@ function renderMap(payload){
   ensureMap(payload.center||[37.5665,126.9780], payload.zoom||13);
   MAP_LAYER.clearLayers();
 
-  // 학교 기준 반경(있을 때만)
   if(payload.school && payload.school.coord){
     const [slat, slon] = payload.school.coord;
     const ranges=[500,1000,1500,2000,2500];
     const counts=new Map(ranges.map(r=>[r,0]));
-    const hav=(a,b)=>{const R=6371000,toRad=d=>d*Math.PI/180;
-      const dLat=toRad(b[0]-a[0]), dLon=toRad(b[1]-a[1]);
-      const lat1=toRad(a[0]), lat2=toRad(b[0]);
-      const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
-      return 2*R*Math.asin(Math.sqrt(h));
-    };
-    (payload.points||[]).forEach(p=>{
-      const d=hav([slat,slon],[p.lat,p.lon]);
-      for(const r of ranges){ if(d<=r){ counts.set(r, counts.get(r)+p.count); break; } }
-    });
+    const hav=(a,b)=>{const R=6371000,toRad=d=>d*Math.PI/180;const dLat=toRad(b[0]-a[0]),dLon=toRad(b[1]-a[1]);const lat1=toRad(a[0]),lat2=toRad(b[0]);const h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;return 2*R*Math.asin(Math.sqrt(h));};
+    (payload.points||[]).forEach(p=>{ const d=hav([slat,slon],[p.lat,p.lon]); for(const r of ranges){ if(d<=r){ counts.set(r, counts.get(r)+p.count); break; } } });
     ranges.forEach(r=>{
       L.circle([slat, slon], {radius:r, color:'#808080', weight:1, dashArray:'5'}).addTo(MAP_LAYER);
       const labelLat = slat + (r/1000)/111;
       const txt = r>=1000 ? (r/1000).toFixed(1)+`km (${counts.get(r)}건)` : r+`m (${counts.get(r)}건)`;
       L.marker([labelLat, slon], {icon:L.divIcon({className:'', html:`<div style="font-size:18px;font-weight:bold;white-space:nowrap;color:black">${txt}</div>`})}).addTo(MAP_LAYER);
     });
-    L.circleMarker([slat,slon], {radius:6,color:'red',fill:true,fillColor:'red',fillOpacity:1})
-      .bindTooltip('학교 기준점',{sticky:true}).addTo(MAP_LAYER);
+    L.circleMarker([slat,slon], {radius:6,color:'red',fill:true,fillColor:'red',fillOpacity:1}).bindTooltip('학교 기준점',{sticky:true}).addTo(MAP_LAYER);
   }
 
-  // 주소 포인트
   const latlngs=[];
   (payload.points||[]).forEach(p=>{
     latlngs.push([p.lat,p.lon]);
-    // 파이썬과 동일한 반지름 계산식
     const k=0.1111, maxR=50;
     let r = p.count<=100 ? Math.sqrt(p.count/k) : 30 + Math.log(p.count-99);
-    r = Math.min(maxR, Math.max(6, r)); // 가독성용 최소값
+    r = Math.min(maxR, Math.max(6, r));
 
     const popupHtml = '<ul style="margin:0;padding-left:16px">'+(p.popupTexts||[]).map(t=>'<li>'+t+'</li>').join('')+'</ul>';
     const tip = build_tooltip_text(p.popupTexts||[]);
 
-    // 파란 점(원) + 툴팁
-    L.circleMarker([p.lat,p.lon], {
-      radius:r, color:'#1e4fff', weight:1, fill:true, fillColor:'#3b6cff', fillOpacity:0.85
-    }).bindPopup(popupHtml,{maxWidth:300})
+    L.circleMarker([p.lat,p.lon], {radius:r,color:'#1e4fff',weight:1,fill:true,fillColor:'#3b6cff',fillOpacity:0.85})
+      .bindPopup(popupHtml,{maxWidth:300})
       .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tip+'</div>',{sticky:true})
       .addTo(MAP_LAYER);
 
-    // 건수 오버레이(2건 이상)
     if(p.count>1){
       L.marker([p.lat,p.lon], {icon:L.divIcon({
         className:'', iconSize:[r*2,r*2], iconAnchor:[r,r],
-        html:`<div style="
-          display:flex;justify-content:center;align-items:center;
-          width:${r*2}px;height:${r*2}px;border-radius:50%;
-          font-size:14px;font-weight:700;color:#fff;
-          text-shadow:0 1px 2px rgba(0,0,0,.6);
-          background:rgba(0,0,0,.35);">${p.count}</div>`
+        html:`<div style="display:flex;justify-content:center;align-items:center;width:${r*2}px;height:${r*2}px;border-radius:50%;font-size:14px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);background:rgba(0,0,0,.35);">${p.count}</div>`
       })})
       .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tip+'</div>',{sticky:true})
       .addTo(MAP_LAYER);
     }
   });
 
-  if(latlngs.length===1){ MAP.setView(latlngs[0], payload.zoom||14); }
-  else if(latlngs.length>1){ MAP.fitBounds(latlngs,{padding:[30,30]}); }
-
+  if(latlngs.length===1) MAP.setView(latlngs[0], payload.zoom||14);
+  else if(latlngs.length>1) MAP.fitBounds(latlngs,{padding:[30,30]});
   setTimeout(()=>MAP.invalidateSize(), 50);
 }
 
@@ -247,47 +207,37 @@ async function readRowsFromFile(file){
   const ext = file.name.split('.').pop().toLowerCase();
   if(['xlsx','xls'].includes(ext)){
     const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf,{type:'array'});
-    const ws = wb.Sheets[wb.SheetNames[0]];
+    const wb = XLSX.read(buf,{type:'array'}); const ws = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(ws,{defval:'',raw:true});
-    let b2=''; try{ b2=(ws['B2']&&ws['B2'].v)? String(ws['B2'].v).trim() : ''; }catch{}
+    let b2=''; try{ b2=(ws['B2']&&ws['B2'].v)? String(ws['B2'].v).trim():''; }catch{}
     return {rows, b2};
   }else if(ext==='csv'){
-    const text = await file.text();
-    const parsed = Papa.parse(text,{header:true,skipEmptyLines:true});
+    const text = await file.text(); const parsed = Papa.parse(text,{header:true,skipEmptyLines:true});
     return {rows: parsed.data, b2: ''};
-  }else{
-    throw new Error('지원하지 않는 파일 형식입니다.');
-  }
+  }else{ throw new Error('지원하지 않는 파일 형식입니다.'); }
 }
 
 /* ====== 실행 ====== */
 $('#clearBtn').addEventListener('click', ()=>{ $('#log').textContent=''; $('#bar').style.width='0%'; $('#progLabel').textContent=''; });
 
 $('#runBtn').addEventListener('click', async()=>{
-  ensureMap();
-  $('#map').scrollIntoView({behavior:'smooth', block:'start'});
+  ensureMap(); $('#map').scrollIntoView({behavior:'smooth', block:'start'});
 
-  const f = $('#file').files[0];
-  if(!f){ alert('데이터 파일을 선택해 주세요.'); return; }
+  const f = $('#file').files[0]; if(!f){ alert('데이터 파일을 선택해 주세요.'); return; }
 
   $('#log').textContent=''; setProgress(0,0); log('처리를 시작합니다.');
 
-  let rows, b2;
-  try{ const r = await readRowsFromFile(f); rows=r.rows; b2=r.b2||''; }
-  catch(e){ alert(e.message); return; }
+  let rows, b2; try{ const r=await readRowsFromFile(f); rows=r.rows; b2=r.b2||''; } catch(e){ alert(e.message); return; }
 
   let schoolAddr = ($('#schoolAddr').value||'').trim();
   if(!schoolAddr && b2){ schoolAddr=b2; log(`엑셀 B2에서 학교 주소 감지: ${schoolAddr}`); }
 
-  // 컬럼 매핑
   const norm = s=>String(s||'').replace(/\s+/g,'').toLowerCase();
   const head = rows.length? Object.keys(rows[0]) : [];
   const colAddr = head.find(h=>['주소','address'].includes(norm(h))) || '주소';
   const colGubun= head.find(h=>['구분','category','type'].includes(norm(h))) || '구분';
   const colDong = head.find(h=>['동','building','dong'].includes(norm(h))) || '동';
 
-  // 학교 좌표
   let schoolCoord=null;
   if(schoolAddr){
     log(`학교 기준 주소 지오코딩: ${schoolAddr}`);
@@ -302,28 +252,23 @@ $('#runBtn').addEventListener('click', async()=>{
     const raw = String(row[colAddr]||'').trim();
     if(!raw){ log(`[오류] ${i+2}행: 주소 없음`); done++; setProgress(done,total); continue; }
 
-    // 파이썬과 동일: 쉼표가 있으면 앞부분을 메인 주소로 사용
-    const main = raw.includes(',') ? raw.split(',')[0].trim() : raw;
-    const suffix = raw.replace(main,'').trim().replace(/^,?\s*/,'');
-
+    // ★ 더는 쉼표로 자르지 않습니다(전부 사용).
+    const main = raw;
     const gubun = String(row[colGubun]||'').trim();
     const dong  = String(row[colDong]||'').trim();
 
     const cleaned = clean_address(main);
 
-    // 오류 조건(도로명 번지 없음 / '동'만)
     const tokens = cleaned.split(/\s+/);
     const last = tokens[tokens.length-1]||'';
     const isOnlyDong = (cleaned.endsWith('동') && tokens.length===1) || (last.endsWith('동') && !/\d/.test(last));
     const hasRoadButNoNumber = is_road_address(cleaned) && !/\b\d{1,5}\b/.test(cleaned);
     if(isOnlyDong || hasRoadButNoNumber){
       const reason = isOnlyDong ? '동만 기재됨' : '도로명인데 번지가 없음';
-      log(`[오류] ${cleaned} → ${reason}`);
-      done++; setProgress(done,total, cleaned); continue;
+      log(`[오류] ${cleaned} → ${reason}`); done++; setProgress(done,total, cleaned); continue;
     }
 
-    setProgress(done,total, cleaned);
-    log(`지오코딩: ${cleaned}`);
+    setProgress(done,total, cleaned); log(`지오코딩: ${cleaned}`);
 
     const coord = await geocodeVWorld(cleaned);
     await sleep(200);
@@ -336,7 +281,6 @@ $('#runBtn').addEventListener('click', async()=>{
       p.count++;
       const lines=[cleaned];
       if(gubun==='아파트' && dong) lines.push(`${dong}동`);
-      if(suffix) lines.push(suffix);
       p.popupTexts.push(lines.join('<br>'));
       log(`성공: ${cleaned} → (${coord[0].toFixed(5)}, ${coord[1].toFixed(5)})`);
     }else{
@@ -354,10 +298,9 @@ $('#runBtn').addEventListener('click', async()=>{
     log(`✅ 완료: 총 ${total}건 / 성공 ${success}건 / 실패 ${total-success}건`);
   }else{
     const fb = (schoolCoord && Array.isArray(schoolCoord))
-      ? {center: schoolCoord, zoom:14, points: [], school:{coord:schoolCoord,address:schoolAddr}}
+      ? {center:schoolCoord, zoom:14, points:[], school:{coord:schoolCoord,address:schoolAddr}}
       : {center:[37.5665,126.9780], zoom:12, points:[]};
-    renderMap(fb);
-    log('⛔ 표시할 수 있는 주소가 없습니다.');
+    renderMap(fb); log('⛔ 표시할 수 있는 주소가 없습니다.');
   }
 });
 </script>
