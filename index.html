@@ -172,29 +172,48 @@ function renderMap(payload){
     L.circleMarker([slat,slon], {radius:6,color:'red',fill:true,fillColor:'red',fillOpacity:1}).bindTooltip('학교 기준점',{sticky:true}).addTo(MAP_LAYER);
   }
 
-  const latlngs=[];
+    const latlngs=[];
   (payload.points||[]).forEach(p=>{
     latlngs.push([p.lat,p.lon]);
-    const k=0.1111, maxR=50;
-    let r = p.count<=100 ? Math.sqrt(p.count/k) : 30 + Math.log(p.count-99);
-    r = Math.min(maxR, Math.max(6, r));
 
-    const popupHtml = '<ul style="margin:0;padding-left:16px">'+(p.popupTexts||[]).map(t=>'<li>'+t+'</li>').join('')+'</ul>';
+    // ====== 마커 크기: 면적 ∝ 건수  → r = BASE * sqrt(count) ======
+    const SCALE   = 0.5;          // 기존 대비 50% 정도 더 작게
+    const BASE_R  = 8;            // count=1 기준 반지름(픽셀)
+    const MIN_R   = 4;            // 너무 작지 않게
+    const MAX_R   = 28;           // 너무 커지지 않게
+    let   r       = BASE_R * Math.sqrt(Math.max(1, p.count)) * SCALE;
+    r = Math.max(MIN_R, Math.min(MAX_R, r));
+
+    // 팝업/툴팁
+    const popupHtml = '<ul style="margin:0;padding-left:16px">'
+      + (p.popupTexts||[]).map(t=>'<li>'+t+'</li>').join('') + '</ul>';
     const tip = build_tooltip_text(p.popupTexts||[]);
 
-    L.circleMarker([p.lat,p.lon], {radius:r,color:'#1e4fff',weight:1,fill:true,fillColor:'#3b6cff',fillOpacity:0.85})
-      .bindPopup(popupHtml,{maxWidth:300})
-      .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tip+'</div>',{sticky:true})
-      .addTo(MAP_LAYER);
+    // ====== DivIcon 버블 마커: 선명색 + 테두리 + 그림자 ======
+    const iconHtml = `
+      <div style="
+        width:${r*2}px;height:${r*2}px;border-radius:50%;
+        display:flex;align-items:center;justify-content:center;
+        font-weight:700;font-size:${Math.max(11, r*0.9)}px;
+        color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.55);
+        /* 선명한 파랑 그라데이션 */
+        background: radial-gradient(circle at 35% 30%, #77a9ff 0%, #2a78ff 45%, #1359ff 100%);
+        /* 하얀 테두리로 또렷하게 */
+        box-shadow:
+          0 2px 10px rgba(0,0,0,.35),     /* 그림자 */
+          0 0 0 2px rgba(255,255,255,.95);/* 하얀 외곽선 */
+      ">
+        ${p.count>1 ? p.count : ''}
+      </div>`;
 
-    if(p.count>1){
-      L.marker([p.lat,p.lon], {icon:L.divIcon({
-        className:'', iconSize:[r*2,r*2], iconAnchor:[r,r],
-        html:`<div style="display:flex;justify-content:center;align-items:center;width:${r*2}px;height:${r*2}px;border-radius:50%;font-size:14px;font-weight:700;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);background:rgba(0,0,0,.35);">${p.count}</div>`
-      })})
-      .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tip+'</div>',{sticky:true})
+    const icon = L.divIcon({
+      className: '', iconSize:[r*2,r*2], iconAnchor:[r,r], html: iconHtml
+    });
+
+    const m = L.marker([p.lat,p.lon], {icon})
+      .bindPopup(popupHtml, {maxWidth: 300})
+      .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tip+'</div>', {sticky:true})
       .addTo(MAP_LAYER);
-    }
   });
 
   if(latlngs.length===1) MAP.setView(latlngs[0], payload.zoom||14);
