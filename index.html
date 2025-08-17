@@ -82,11 +82,12 @@
   </div>
 
 <script>
-/* ====== 설정 ====== */
-const PROXY_BASE = 'https://<YOUR-WORKER-ID>.workers.dev'; // ← 여기 Worker URL로 교체
+/* ====== 프록시 설정 ====== */
+const PROXY_BASE = 'https://world-map.hyok96.workers.dev'; // ← 프록시 URL
+
+/* ====== 유틸 ====== */
 const $ = s => document.querySelector(s);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-
 function log(msg){ const el=$('#log'); const t=new Date().toLocaleTimeString(); el.textContent += `[${t}] ${msg}\n`; el.scrollTop = el.scrollHeight; }
 function setProgress(done,total){ const pct= total? Math.round(done/total*100):0; $('#bar').style.width=pct+'%'; $('#progLabel').textContent = total? `진행률: ${done}/${total} (${pct}%)` : ''; }
 
@@ -100,10 +101,8 @@ function buildTooltipText(popupTexts){ if(!popupTexts?.length) return ''; const 
 
 /* ====== VWorld 지오코딩(프록시 경유) ====== */
 async function geocodeVWorld(address){
-  // 기본 타입 → 보조 타입 순으로 2회 시도
   const primary = isRoadAddress(address) ? 'road' : 'parcel';
   const order = primary==='road' ? ['road','parcel'] : ['parcel','road'];
-
   for (const type of order){
     const u = new URL(PROXY_BASE);
     u.searchParams.set('address', address);
