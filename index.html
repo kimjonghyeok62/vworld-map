@@ -400,7 +400,7 @@ $('#runBtn').addEventListener('click', async()=>{
     setProgress(done,total, cleaned); log(`지오코딩: ${cleaned}`);
 
     const coord = await geocodeVWorld(cleaned);
-    await sleep(100);
+    await sleep(1);
 
     if(coord){
       success++;
