@@ -36,30 +36,37 @@
     #map{width:100vw;height:100vh;background:#0f1530;border-top:1px solid var(--line);display:block}
     .leaflet-div-icon{background:transparent!important;border:0!important}
 
-    /* 지도 위 베이스맵 라디오 컨트롤(좌상단) */
+    /* Zoom 컨트롤 오른쪽에 라디오 컨트롤을 가로로 배치 */
+    .leaflet-top.leaflet-left{
+      display:flex; gap:8px; align-items:flex-start;
+      flex-direction: row; /* 가로 정렬 */
+    }
+
+    /* 지도 위 베이스맵 라디오 컨트롤(Zoom 오른쪽, 약간 작게) */
     .leaflet-control.basemap-control{
       background: rgba(17,23,44,.85);
       border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 10px 12px;
+      border-radius: 12px;
+      padding: 6px 8px;            /* 작게 */
       color: var(--txt);
-      box-shadow: 0 8px 20px rgba(0,0,0,.35);
+      box-shadow: 0 6px 16px rgba(0,0,0,.30);
       backdrop-filter: blur(4px);
       -webkit-backdrop-filter: blur(4px);
-      font-size: 13px;
+      font-size: 12px;             /* 작게 */
+      margin-top: 0;               /* Zoom과 수평 정렬 */
     }
-    .basemap-control .title{color: var(--muted);font-size: 12px;margin: 0 0 6px;letter-spacing:.02em;}
-    .basemap-control .options{display:flex; gap:8px; align-items:center;}
+    .basemap-control .title{color: var(--muted);font-size: 11px;margin: 0 0 4px;letter-spacing:.02em;}
+    .basemap-control .options{display:flex; gap:6px; align-items:center;}
     .basemap-control label.option{
       display:inline-flex; gap:6px; align-items:center;
-      padding:6px 10px; border-radius:999px;
+      padding:4px 8px; border-radius:999px;     /* 작게 */
       border:1px solid var(--line);
       background: rgba(255,255,255,.03);
       user-select:none; cursor:pointer;
       transition: border-color .15s, background .15s;
     }
     .basemap-control label.option:hover{ border-color:#5b8cff; background:rgba(91,140,255,.08); }
-    .basemap-control input[type=radio]{ accent-color:#5b8cff; transform:scale(1.05); }
+    .basemap-control input[type=radio]{ accent-color:#5b8cff; transform:scale(1.0); }
 
     .ghost-btn{ background:transparent; color:#cfe0ff; border:1px solid var(--line); font-weight:600; }
     .ghost-btn:hover{ border-color:#5b8cff; background:rgba(91,140,255,.08); }
@@ -259,17 +266,54 @@ async function mapLimit(items, limit, iterator){
 let MAP=null, MAP_LAYER=null, CANVAS_RENDERER=null;
 let BASE_OSM=null, BASE_SAT=null, CURRENT_BASE=null;
 let BASEMAP_RADIOS=null;
+let CURRENT_MODE='osm';            // 'osm' | 'sat'
+
+/* 마커 참조 저장(베이스맵 변경 시 즉시 스타일 변경) */
+const POINT_MARKERS=[]; // { marker, count, r }
+
+/* 마커 아이콘 생성 (베이스맵에 따라 색상 전환) */
+function createMarkerIcon(count, r, mode){
+  const isSat = (mode==='sat');
+  const textColor = isSat ? '#000' : '#fff';
+  const textShadow = isSat ? '0 1px 1px rgba(255,255,255,.35)' : '0 1px 2px rgba(0,0,0,.6)';
+  const bg = isSat
+    ? 'radial-gradient(circle at 35% 30%, #ffe066 0%, #ffcc00 45%, #d4a200 100%)'  // yellow
+    : 'radial-gradient(circle at 35% 30%, #3a6cff 0%, #1f50ff 45%, #0032cc 100%)'; // blue
+  const boxShadow = isSat ? '0 3px 12px rgba(0,0,0,.35)' : '0 3px 12px rgba(0,0,0,.35)';
+
+  const html = `
+    <div style="
+      width:${r*2}px;height:${r*2}px;border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      font-weight:700;font-size:${Math.max(11, r*0.9)}px;
+      color:${textColor};text-shadow:${textShadow};
+      background:${bg};
+      box-shadow:${boxShadow};
+    ">${count>1 ? count : ''}</div>`;
+  return L.divIcon({ className:'', iconSize:[r*2,r*2], iconAnchor:[r,r], html });
+}
+
+/* 베이스맵 전환 시 마커 외형 갱신 */
+function refreshMarkerStyles(mode){
+  for(const it of POINT_MARKERS){
+    const icon = createMarkerIcon(it.count, it.r, mode);
+    it.marker.setIcon(icon);
+  }
+}
 
 function setBasemap(mode){
   if(!MAP) return;
   if(CURRENT_BASE) MAP.removeLayer(CURRENT_BASE);
   CURRENT_BASE = (mode==='sat') ? BASE_SAT : BASE_OSM;
   CURRENT_BASE.addTo(MAP);
+  CURRENT_MODE = mode;
   if(BASEMAP_RADIOS){ BASEMAP_RADIOS.forEach(r => r.checked = (r.value === mode)); }
+  refreshMarkerStyles(mode); // ★ 마커 색상 즉시 변경
 }
+
 function addBasemapControl(){
   const Control = L.Control.extend({
-    options:{position:'topleft'},
+    options:{position:'topleft'},  // Zoom 오른쪽에 가로 배치(CSS로 정렬)
     onAdd: function(map){
       const div = L.DomUtil.create('div','leaflet-control basemap-control');
       div.innerHTML = `
@@ -286,6 +330,7 @@ function addBasemapControl(){
   });
   (new Control()).addTo(MAP);
 }
+
 function ensureMap(center=[37.5665,126.9780], zoom=12){
   if(!MAP){
     CANVAS_RENDERER = L.canvas({ padding: 0.5 }); // 캔버스 렌더러(원·선 등 가속)
@@ -306,6 +351,7 @@ function ensureMap(center=[37.5665,126.9780], zoom=12){
 function renderMap(payload){
   ensureMap(payload.center||[37.5665,126.9780], payload.zoom||13);
   MAP_LAYER.clearLayers();
+  POINT_MARKERS.length = 0; // 마커 레퍼런스 초기화
 
   // 반경표시(캔버스)
   if(payload.school && payload.school.coord){
@@ -332,25 +378,16 @@ function renderMap(payload){
     let r = BASE_R * Math.sqrt(Math.max(1, p.count)) * SCALE;
     r = Math.max(MIN_R, Math.min(MAX_R, r));
 
-    // divIcon(숫자 오버레이) 유지 — 수량 많을 때 부담 줄이려 outline만 간소화
-    const iconHtml = `
-      <div style="
-        width:${r*2}px;height:${r*2}px;border-radius:50%;
-        display:flex;align-items:center;justify-content:center;
-        font-weight:700;font-size:${Math.max(11, r*0.9)}px;
-        color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);
-        background: radial-gradient(circle at 35% 30%, #3a6cff 0%, #1f50ff 45%, #0032cc 100%);
-        box-shadow: 0 3px 12px rgba(0,0,0,.35);
-      ">${p.count>1 ? p.count : ''}</div>`;
-    const icon = L.divIcon({ className:'', iconSize:[r*2,r*2], iconAnchor:[r,r], html: iconHtml });
-
     const popupHtml = '<ul style="margin:0;padding-left:16px">'+(p.popupTexts||[]).map(t=>'<li>'+t+'</li>').join('')+'</ul>';
     const tip = build_tooltip_text(p.popupTexts||[]);
 
-    L.marker([p.lat,p.lon], {icon})
+    const icon = createMarkerIcon(p.count, r, CURRENT_MODE);
+    const marker = L.marker([p.lat,p.lon], {icon})
       .bindPopup(popupHtml, {maxWidth:300})
       .bindTooltip('<div style="font-size:14px;font-family:\'맑은 고딕\'">'+tip+'</div>', {sticky:true})
       .addTo(MAP_LAYER);
+
+    POINT_MARKERS.push({ marker, count:p.count, r });
   });
 
   if(latlngs.length===1) MAP.setView(latlngs[0], payload.zoom||14);
