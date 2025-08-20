@@ -39,7 +39,7 @@
     /* Zoom 컨트롤 오른쪽에 라디오 컨트롤을 가로로 배치 */
     .leaflet-top.leaflet-left{
       display:flex; gap:8px; align-items:flex-start;
-      flex-direction: row; /* 가로 정렬 */
+      flex-direction: row;
     }
 
     /* 지도 위 베이스맵 라디오 컨트롤(Zoom 오른쪽, 약간 작게) */
@@ -47,19 +47,19 @@
       background: rgba(17,23,44,.85);
       border: 1px solid var(--line);
       border-radius: 12px;
-      padding: 6px 8px;            /* 작게 */
+      padding: 6px 8px;
       color: var(--txt);
       box-shadow: 0 6px 16px rgba(0,0,0,.30);
       backdrop-filter: blur(4px);
       -webkit-backdrop-filter: blur(4px);
-      font-size: 12px;             /* 작게 */
-      margin-top: 0;               /* Zoom과 수평 정렬 */
+      font-size: 12px;
+      margin-top: 0;
     }
     .basemap-control .title{color: var(--muted);font-size: 11px;margin: 0 0 4px;letter-spacing:.02em;}
     .basemap-control .options{display:flex; gap:6px; align-items:center;}
     .basemap-control label.option{
       display:inline-flex; gap:6px; align-items:center;
-      padding:4px 8px; border-radius:999px;     /* 작게 */
+      padding:4px 8px; border-radius:999px;
       border:1px solid var(--line);
       background: rgba(255,255,255,.03);
       user-select:none; cursor:pointer;
@@ -214,17 +214,14 @@ function downloadTemplateXLSX(){
 /* -------- 지오코딩(고속·동시성 제한·캐시) -------- */
 const _geoCache = new Map(); // cleaned -> [lat,lon] | null(실패 캐시)
 async function geocodeOnce(address){
-  // 캐시
   if(_geoCache.has(address)) return _geoCache.get(address);
-
   const primary = is_road_address(address) ? 'road' : 'parcel';
   const order = primary==='road' ? ['road','parcel'] : ['parcel','road'];
-
   for (const type of order){
     const u = new URL(PROXY_BASE);
     u.searchParams.set('address', address);
     u.searchParams.set('type', type);
-    u.searchParams.set('_ts', Date.now()); // 캐시 회피
+    u.searchParams.set('_ts', Date.now());
     try{
       const res = await fetch(u.toString(), { method:'GET', cache:'no-store' });
       const data = await res.json();
@@ -235,9 +232,7 @@ async function geocodeOnce(address){
         _geoCache.set(address, coord);
         return coord;
       }
-    }catch(e){
-      // 네트워크 예외는 다음 순서로 폴백 시도
-    }
+    }catch(e){/* 폴백 시도 */}
   }
   _geoCache.set(address, null);
   return null;
@@ -277,10 +272,8 @@ function createMarkerIcon(count, r, mode){
   const textColor = isSat ? '#000' : '#fff';
   const textShadow = isSat ? '0 1px 1px rgba(255,255,255,.35)' : '0 1px 2px rgba(0,0,0,.6)';
   const bg = isSat
-    ? 'radial-gradient(circle at 35% 30%, #ffe066 0%, #ffcc00 45%, #d4a200 100%)'  // yellow
-    : 'radial-gradient(circle at 35% 30%, #3a6cff 0%, #1f50ff 45%, #0032cc 100%)'; // blue
-  const boxShadow = isSat ? '0 3px 12px rgba(0,0,0,.35)' : '0 3px 12px rgba(0,0,0,.35)';
-
+    ? 'radial-gradient(circle at 35% 30%, #ffe066 0%, #ffcc00 45%, #d4a200 100%)'
+    : 'radial-gradient(circle at 35% 30%, #3a6cff 0%, #1f50ff 45%, #0032cc 100%)';
   const html = `
     <div style="
       width:${r*2}px;height:${r*2}px;border-radius:50%;
@@ -288,7 +281,7 @@ function createMarkerIcon(count, r, mode){
       font-weight:700;font-size:${Math.max(11, r*0.9)}px;
       color:${textColor};text-shadow:${textShadow};
       background:${bg};
-      box-shadow:${boxShadow};
+      box-shadow:0 3px 12px rgba(0,0,0,.35);
     ">${count>1 ? count : ''}</div>`;
   return L.divIcon({ className:'', iconSize:[r*2,r*2], iconAnchor:[r,r], html });
 }
@@ -308,12 +301,12 @@ function setBasemap(mode){
   CURRENT_BASE.addTo(MAP);
   CURRENT_MODE = mode;
   if(BASEMAP_RADIOS){ BASEMAP_RADIOS.forEach(r => r.checked = (r.value === mode)); }
-  refreshMarkerStyles(mode); // ★ 마커 색상 즉시 변경
+  refreshMarkerStyles(mode);
 }
 
 function addBasemapControl(){
   const Control = L.Control.extend({
-    options:{position:'topleft'},  // Zoom 오른쪽에 가로 배치(CSS로 정렬)
+    options:{position:'topleft'},
     onAdd: function(map){
       const div = L.DomUtil.create('div','leaflet-control basemap-control');
       div.innerHTML = `
@@ -333,7 +326,7 @@ function addBasemapControl(){
 
 function ensureMap(center=[37.5665,126.9780], zoom=12){
   if(!MAP){
-    CANVAS_RENDERER = L.canvas({ padding: 0.5 }); // 캔버스 렌더러(원·선 등 가속)
+    CANVAS_RENDERER = L.canvas({ padding: 0.5 });
     MAP = L.map('map', { preferCanvas: true }).setView(center, zoom);
     BASE_OSM = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       {maxZoom:19, attribution:'&copy; OpenStreetMap contributors'});
@@ -351,7 +344,7 @@ function ensureMap(center=[37.5665,126.9780], zoom=12){
 function renderMap(payload){
   ensureMap(payload.center||[37.5665,126.9780], payload.zoom||13);
   MAP_LAYER.clearLayers();
-  POINT_MARKERS.length = 0; // 마커 레퍼런스 초기화
+  POINT_MARKERS.length = 0;
 
   // 반경표시(캔버스)
   if(payload.school && payload.school.coord){
@@ -369,7 +362,7 @@ function renderMap(payload){
     L.circleMarker([slat,slon], {radius:6,color:'red',fill:true,fillColor:'red',fillOpacity:1, renderer:CANVAS_RENDERER}).bindTooltip('학교 기준점',{sticky:true}).addTo(MAP_LAYER);
   }
 
-  // 포인트 (중첩 카운트 반영)
+  // 포인트
   const latlngs=[];
   (payload.points||[]).forEach(p=>{
     latlngs.push([p.lat,p.lon]);
@@ -439,6 +432,12 @@ $('#runBtn').addEventListener('click', async()=>{
   const colGubun= head.find(h=>['구분','category','type'].includes(norm(h))) || '구분';
   const colDong = head.find(h=>['동','building','dong'].includes(norm(h))) || '동';
 
+  // === 진행/집계용 카운터 & 오류 리스트(요구사항 추가) ===
+  const totalAll = rows.length;
+  let doneAll = 0;
+  let successRows = 0;
+  const errorRows = []; // {row, address, reason}
+
   // 학교 좌표(있으면)
   let schoolCoord=null;
   if(schoolAddr){
@@ -447,53 +446,76 @@ $('#runBtn').addEventListener('click', async()=>{
     if(!schoolCoord) log('학교 주소 지오코딩 실패: 반경/거리 라벨은 생략됩니다.');
   }
 
-  // 1) 주소 정제 + 유효성 검사 + 그룹화(동일 cleaned 주소 묶기)
-  const groups = new Map(); // cleaned -> [{gubun,dong,orig}]
-  let skipped = 0;
-  rows.forEach((row, i)=>{
-    const raw = String(row[colAddr]||'').trim();
-    if(!raw){ skipped++; return; }
-    const gubun = String(row[colGubun]||'').trim();
-    const dong  = String(row[colDong]||'').trim();
+  // 1) 주소 전처리/검사 + 그룹화
+  const groups = new Map(); // cleaned -> [{row,gubun,dong,orig}]
+  rows.forEach((rowObj, i)=>{
+    const rowNum = i+2; // 엑셀 헤더 고려(A2부터 데이터)
+    const raw = String(rowObj[colAddr]||'').trim();
+    if(!raw){
+      errorRows.push({row:rowNum, address:'(빈칸)', reason:'주소 없음'});
+      log(`[오류] ${rowNum}행: 주소 없음`);
+      doneAll++; setProgress(doneAll,totalAll, '(빈칸)');
+      return;
+    }
+    const gubun = String(rowObj[colGubun]||'').trim();
+    const dong  = String(rowObj[colDong]||'').trim();
     const cleaned = clean_address(raw);
 
     const tokens = cleaned.split(/\s+/);
     const last = tokens[tokens.length-1]||'';
     const isOnlyDong = (cleaned.endsWith('동') && tokens.length===1) || (last.endsWith('동') && !/\d/.test(last));
     const hasRoadButNoNumber = is_road_address(cleaned) && !/\b\d{1,5}\b/.test(cleaned);
-    if(isOnlyDong || hasRoadButNoNumber){ skipped++; log(`[오류] ${cleaned} → ${isOnlyDong?'동만 기재됨':'도로명인데 번지가 없음'}`); return; }
+    if(isOnlyDong || hasRoadButNoNumber){
+      const reason = isOnlyDong ? '동만 기재됨' : '도로명인데 번지가 없음';
+      errorRows.push({row:rowNum, address:cleaned, reason});
+      log(`[오류] ${rowNum}행: ${cleaned} → ${reason}`);
+      doneAll++; setProgress(doneAll,totalAll, cleaned);
+      return;
+    }
 
     if(!groups.has(cleaned)) groups.set(cleaned, []);
-    groups.get(cleaned).push({ gubun, dong, orig: raw });
+    groups.get(cleaned).push({ row:rowNum, gubun, dong, orig: raw });
   });
 
   const uniqueAddresses = Array.from(groups.keys());
-  const totalUnique = uniqueAddresses.length;
-  if(totalUnique===0){
+  if(uniqueAddresses.length===0){
     const fb = (schoolCoord && Array.isArray(schoolCoord))
       ? {center:schoolCoord, zoom:14, points:[], school:{coord:schoolCoord,address:schoolAddr}}
       : {center:[37.5665,126.9780], zoom:12, points:[]};
     renderMap(fb);
-    log(`⛔ 표시할 주소가 없습니다. (빈행/형식오류 제외 ${skipped}건)`);
+    // 종료 요약 출력
+    const summary = `총 ${totalAll}건 · 정상 ${successRows}건 · 오류 ${errorRows.length}건`;
+    $('#progLabel').innerHTML = summary + (errorRows.length? `<br><br><b>오류 목록</b><br>${esc(errorRows.map(e=>`행 ${e.row}: ${e.address} → ${e.reason}`).join('\n'))}` : '');
+    log(`⛔ 표시할 주소가 없습니다. (전부 오류/빈행)`);
     stopLogFlush();
     return;
   }
 
-  log(`고유 주소 ${totalUnique}건 지오코딩 시작 (동시 10건)…`);
-  setProgress(0,totalUnique);
+  log(`고유 주소 ${uniqueAddresses.length}건 지오코딩 시작 (동시 10건)…`);
+  setProgress(doneAll,totalAll);
 
-  // 2) 고유 주소 병렬 지오코딩 (동시성 제한)
-  const CONCURRENCY = 10; // 필요 시 6~12 사이로 조절
-  let done=0, success=0;
+  // 2) 병렬 지오코딩
+  const CONCURRENCY = 10;
   const coordMap = new Map(); // cleaned -> [lat,lon] | null
 
-  await mapLimit(uniqueAddresses, CONCURRENCY, async (addr, idx)=>{
+  await mapLimit(uniqueAddresses, CONCURRENCY, async (addr)=>{
     log(`지오코딩: ${addr}`);
     const coord = await geocodeOnce(addr);
     coordMap.set(addr, coord);
-    if(coord){ success++; log(`성공: ${addr} → (${coord[0].toFixed(5)}, ${coord[1].toFixed(5)})`); }
-    else{ log(`[실패] ${addr} → 주소를 찾을 수 없습니다.`); }
-    done++; setProgress(done, totalUnique, addr);
+
+    const occ = groups.get(addr) || [];
+    if(coord){
+      log(`성공: ${addr} → (${coord[0].toFixed(5)}, ${coord[1].toFixed(5)})`);
+      successRows += occ.length; // 이 주소에 매핑된 모든 행을 정상 처리로 카운트
+    }else{
+      log(`[실패] ${addr} → 주소를 찾을 수 없습니다.`);
+      // 이 주소의 모든 행을 오류로 기록
+      occ.forEach(o=>{
+        errorRows.push({row:o.row, address:addr, reason:'주소를 찾을 수 없습니다.'});
+      });
+    }
+    doneAll += occ.length; // 이 유니크 주소에 해당하는 모든 행 진행 완료로 처리
+    setProgress(doneAll, totalAll, addr);
   });
 
   // 3) 좌표별 집계(여러 행→한 좌표로)
@@ -517,7 +539,7 @@ $('#runBtn').addEventListener('click', async()=>{
     const center=[points[0].lat, points[0].lon];
     const schoolBlock = (schoolCoord && Array.isArray(schoolCoord)) ? {coord:schoolCoord, address:schoolAddr} : null;
     renderMap({center, zoom:14, points, school: schoolBlock});
-    log(`✅ 완료: 고유 ${totalUnique}건 / 성공 ${success}건 / 실패 ${totalUnique-success}건 / 스킵 ${skipped}건`);
+    log(`✅ 완료: 총 ${totalAll}건 / 정상 ${successRows}건 / 오류 ${errorRows.length}건`);
   }else{
     const fb = (schoolCoord && Array.isArray(schoolCoord))
       ? {center:schoolCoord, zoom:14, points:[], school:{coord:schoolCoord,address:schoolAddr}}
@@ -525,6 +547,15 @@ $('#runBtn').addEventListener('click', async()=>{
     renderMap(fb);
     log('⛔ 표시할 수 있는 주소가 없습니다.');
   }
+
+  // === 최종 요약을 진행 라벨에 표시(요구사항 2) ===
+  const summary = `총 학생주소 ${totalAll}건 · 정상 표시 ${successRows}건 · 오류(미표시) ${errorRows.length}건`;
+  const errorBlock = errorRows.length
+    ? `<br><br><b>오류 목록(전부)</b><br>${esc(errorRows
+        .sort((a,b)=>a.row-b.row)
+        .map(e=>`행 ${e.row}: ${e.address} → ${e.reason}`).join('\n'))}`
+    : '';
+  $('#progLabel').innerHTML = summary + errorBlock;
 
   stopLogFlush();
 });
